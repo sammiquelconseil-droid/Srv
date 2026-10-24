@@ -79,17 +79,18 @@ systemctl enable --now cockpit-sauvegarde.timer > /dev/null
 
 # --- Application Cockpit (écrans) ----------------------------------------------------------
 RAW=https://raw.githubusercontent.com/sammiquelconseil-droid/srv/main
-install -d -m 755 /opt/cockpit-app/app /opt/cockpit-app/src
+install -d -m 755 "${APP_DIR:-/opt/cockpit-app}/app" "${APP_DIR:-/opt/cockpit-app}/src"
 install -d -m 750 -o cockpit -g cockpit /var/lib/cockpit/data
-tmpf=$(mktemp)
-curl -fsSL -H 'Cache-Control: no-cache' "$RAW/cockpit-app/FILES" -o "$tmpf"
+APP=${APP_DIR:-/opt/cockpit-app}
+stage=$(mktemp -d); mkdir -p "$stage/app" "$stage/src"
+curl -fsSL -H 'Cache-Control: no-cache' "$RAW/cockpit-app/FILES" -o "$stage/FILES"
 while read -r f; do
   [[ "$f" =~ ^(app|src)/[a-z]+\.mjs$ ]] || { echo "liste invalide : $f"; exit 1; }
-  curl -fsSL -H 'Cache-Control: no-cache' "$RAW/cockpit-app/$f" -o "/opt/cockpit-app/$f.new"
-  node --check "/opt/cockpit-app/$f.new"
-done < "$tmpf"
-while read -r f; do mv "/opt/cockpit-app/$f.new" "/opt/cockpit-app/$f"; done < "$tmpf"
-rm -f "$tmpf"
+  curl -fsSL -H 'Cache-Control: no-cache' "$RAW/cockpit-app/$f" -o "$stage/$f"
+  node --check "$stage/$f"   # vérifié sous son vrai nom (.mjs), sinon Node refuse l'extension
+done < "$stage/FILES"
+while read -r f; do install -m 644 "$stage/$f" "$APP/$f"; done < "$stage/FILES"
+rm -rf "$stage"
 
 # Données : copiées depuis le dépôt privé cockpit (dossier/situation.json) avec le jeton du bot.
 cat > /usr/local/sbin/cockpit-donnees <<'SH'

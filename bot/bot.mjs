@@ -7,6 +7,7 @@ import { createTelegram } from './telegram.mjs';
 import { createCore } from './core.mjs';
 import { createSync } from './sync.mjs';
 import { PROJECTS, normalize } from './classify.mjs';
+import { findSecret } from './secrets.mjs';
 
 const env = process.env;
 const STATE = env.STATE_DIR || '/var/lib/cockpit';
@@ -70,6 +71,10 @@ const core = createCore({
       return tg.send(chat, `Version installée : ${here || 'inconnue'}\nVersion disponible : ${there}\nInstaller la mise à jour ?`, { reply_markup: { inline_keyboard: [[{ text: '✅ Valider', callback_data: `x:maj:${there}` }, { text: 'Annuler', callback_data: 'x:non' }]] } });
     },
     '/cle': async (chat) => sendKey(chat, true),
+    '/journal': async (chat) => {
+      const lines = (await readText('/var/log/cockpit-maj.log')).split('\n').filter((l) => l && !findSecret(l)).slice(-15);
+      return tg.send(chat, lines.length ? `Dernières lignes de la mise à jour :\n${lines.join('\n').slice(-3500)}` : 'Journal de mise à jour vide.');
+    },
     '/cockpit': async (chat) => {
       const url = await readText(path.join(STATE, 'url'));
       if (!url) return tg.send(chat, 'Les écrans du Cockpit ne sont pas encore installés. Envoie /maj.');
