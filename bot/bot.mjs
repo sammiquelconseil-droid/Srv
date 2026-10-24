@@ -119,7 +119,7 @@ async function sendKey(chat, force) {
   }
   if (state.keySent && !force) return null;
   const sent = await tg.send(chat, `🔑 Clé de tes sauvegardes. Sans elle, personne ne peut les ouvrir, pas même toi.\n\n1. Appuie longuement sur la clé ci-dessous et copie-la.\n2. App Mots de passe → + → titre « Cockpit — clé de sauvegarde » → colle-la dans Mot de passe → Enregistrer.\n3. Reviens ici et touche le bouton.\n\nCe message s’efface dans 10 minutes (/cle pour le revoir tant que tu n’as pas touché le bouton).\n\n<code>${key.split('\n').find((l) => l.startsWith('AGE-SECRET-KEY-')) || ''}</code>`,
-    { parse_mode: 'HTML', protect_content: true, reply_markup: { inline_keyboard: [[{ text: '✅ Rangée dans Mots de passe', callback_data: 'x:cle-ok' }]] } });
+    { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '✅ Rangée dans Mots de passe', callback_data: 'x:cle-ok' }]] } });
   state.keySent = Date.now(); state.keyMsg = sent.message_id; await saveState();
   setTimeout(() => tg.call('deleteMessage', { chat_id: chat, message_id: sent.message_id }).catch(() => {}), 10 * 60e3);
 }
