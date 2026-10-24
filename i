@@ -11,6 +11,7 @@ step() { printf '\n== %s\n' "$*"; }
 step "1/6 Mises à jour"
 hostnamectl set-hostname cockpit
 timedatectl set-timezone Europe/Paris
+echo "kernel.printk = 3 4 1 3" > /etc/sysctl.d/90-cockpit-console.conf && sysctl -q -p /etc/sysctl.d/90-cockpit-console.conf
 apt-get update -qq
 apt-get -y -qq full-upgrade
 apt-get -y -qq install unattended-upgrades apt-listchanges needrestart ufw fail2ban \
@@ -41,12 +42,12 @@ if ! tailscale status > /dev/null 2>&1; then
   tailscale up --ssh --hostname=cockpit
 fi
 
-step "4/6 Pare-feu : tout fermé sauf le réseau privé"
+step "4/6 Pare-feu : tout fermé sauf le réseau privé (aucune porte publique)"
 ufw --force reset > /dev/null
 ufw default deny incoming > /dev/null
 ufw default allow outgoing > /dev/null
 ufw allow in on tailscale0 > /dev/null
-ufw allow 22/tcp > /dev/null   # temporaire : fermé après le test depuis l'iPhone
+ufw logging off > /dev/null      # pas de messages du pare-feu dans la console de secours
 ufw --force enable > /dev/null
 
 step "5/6 Blocage des essais de mots de passe"
