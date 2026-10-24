@@ -137,7 +137,8 @@ else
 fi
 rm -f /tmp/ts-serve.log
 echo "$url" > /var/lib/cockpit/url; chown cockpit:cockpit /var/lib/cockpit/url
-printf 'HOST=%s\nPORT=8080\nSTATE_DIR=/var/lib/cockpit\n' "$host" > /etc/cockpit/app.env
+rpid=""; [[ "$url" == https://* ]] && rpid=${url#https://}
+printf 'HOST=%s\nPORT=8080\nSTATE_DIR=/var/lib/cockpit\nRP_ID=%s\n' "$host" "$rpid" > /etc/cockpit/app.env
 
 cat > /etc/systemd/system/cockpit-app.service <<'UNIT'
 [Unit]

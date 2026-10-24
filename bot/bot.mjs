@@ -1,5 +1,6 @@
 // Entry point on the server. Env: TELEGRAM_BOT_TOKEN, PAIR_CODE, STATE_DIR, GITHUB_OWNER.
 import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -71,6 +72,29 @@ const core = createCore({
       return tg.send(chat, `Version installée : ${here || 'inconnue'}\nVersion disponible : ${there}\nInstaller la mise à jour ?`, { reply_markup: { inline_keyboard: [[{ text: '✅ Valider', callback_data: `x:maj:${there}` }, { text: 'Annuler', callback_data: 'x:non' }]] } });
     },
     '/cle': async (chat) => sendKey(chat, true),
+    '/acces': async (chat) => {
+      const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
+      const f = path.join(STATE, 'data', 'acces-code.json');
+      await fs.writeFile(f + '.tmp', JSON.stringify({ code, exp: Date.now() + 10 * 60e3 }), { mode: 0o600 }); await fs.rename(f + '.tmp', f);
+      await log('access code issued');
+      const sent = await tg.send(chat, `Code d’enregistrement : ${code}\nValable 10 minutes, une seule fois. Entre-le sur la page « Accès » du Cockpit, puis Face ID.\n(Ce message s’efface dans 10 minutes.)`);
+      setTimeout(() => tg.call('deleteMessage', { chat_id: chat, message_id: sent.message_id }).catch(() => {}), 10 * 60e3);
+    },
+    '/appareils': async (chat) => {
+      const keys = await readJson(path.join(STATE, 'data', 'passkeys.json'), []);
+      if (!keys.length) return tg.send(chat, 'Aucun appareil enregistré.');
+      return tg.send(chat, 'Appareils qui peuvent ouvrir le Cockpit :\n' + keys.map((k) => `• ${k.label} — enregistré le ${k.created.slice(0, 10)}${k.lastUsed ? `, utilisé le ${k.lastUsed.slice(0, 10)}` : ''}`).join('\n') + '\n\nPour en retirer un : /retirer puis son nom.');
+    },
+    '/retirer': async (chat, arg) => {
+      const f = path.join(STATE, 'data', 'passkeys.json');
+      const keys = await readJson(f, []);
+      const left = keys.filter((k) => k.label !== String(arg || '').trim());
+      if (!arg || left.length === keys.length) return tg.send(chat, 'Donne le nom exact de l’appareil, par exemple : /retirer iPhone de Sam');
+      await fs.writeFile(f + '.tmp', JSON.stringify(left), { mode: 0o600 }); await fs.rename(f + '.tmp', f);
+      await fs.writeFile(path.join(STATE, 'data', 'sessions.json'), '{}').catch(() => {});
+      await log(`passkey removed: ${arg}`);
+      return tg.send(chat, `Appareil « ${arg} » retiré. Toutes les sessions ouvertes ont été fermées.`);
+    },
     '/journal': async (chat) => {
       const lines = (await readText('/var/log/cockpit-maj.log')).split('\n').filter((l) => l && !findSecret(l)).slice(-15);
       return tg.send(chat, lines.length ? `Dernières lignes de la mise à jour :\n${lines.join('\n').slice(-3500)}` : 'Journal de mise à jour vide.');

@@ -1,4 +1,6 @@
 app/server.mjs
 app/views.mjs
+app/auth.mjs
+app/cbor.mjs
 src/schedules.mjs
 src/patrimoine.mjs

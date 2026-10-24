@@ -24,16 +24,17 @@ main{max-width:1200px;margin:0 auto;padding:16px}h1{font-size:26px;margin:4px 0 
 .alert{border-radius:12px;padding:10px 12px;font-size:14px;margin-top:10px}.note{font-size:13px;color:var(--ink2);margin-top:8px}
 form .f{display:flex;flex-direction:column;gap:4px;margin:10px 0}form label{font-weight:600;font-size:14px;color:var(--ink2)}
 input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);min-height:44px;width:100%}
+button.ghost{background:transparent;color:var(--ink2);border:1px solid var(--line);padding:6px 10px;margin:0;font-size:14px}
 button{font:inherit;font-weight:700;background:var(--accent);color:#fff;border:0;border-radius:12px;padding:12px 18px;min-height:44px;margin-top:8px}
 header{flex-wrap:wrap}ul.plain{list-style:none;padding:0;margin:0}ul.plain li{padding:7px 0;border-top:1px solid var(--line);font-size:15px}ul.plain li:first-child{border-top:0}
 `;
 
-function layout(title, current, body) {
+function layout(title, current, body, { nonce, script, noNav } = {}) {
   const link = (href, label) => `<a href="${href}"${current === href ? ' aria-current="page"' : ''}>${label}</a>`;
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#2f5bd3"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Cockpit">
 <title>${esc(title)} · Cockpit</title><style>${CSS}</style></head><body>
-<header><b>Cockpit</b><nav>${link('/', "Aujourd'hui")}${link('/patrimoine', 'Patrimoine')}${link('/mes-chiffres', 'Mes chiffres')}</nav></header><main>${body}</main></body></html>`;
+<header><b>Cockpit</b>${noNav ? '' : `<nav>${link('/', "Aujourd'hui")}${link('/patrimoine', 'Patrimoine')}${link('/mes-chiffres', 'Mes chiffres')}</nav><form method="post" action="/deconnexion" style="margin:0"><button type="submit" class="ghost">Verrouiller</button></form>`}</header><main>${body}</main>${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`;
 }
 
 export function todayPage({ now, sante, sauvegarde, notes, echeances, alertes }) {
@@ -98,6 +99,40 @@ export function chiffresPage({ data, prive, token, message }) {
    <section class="card"><h2>Abonnements réels (€ / mois)</h2>${abos}
     <button type="submit">Enregistrer</button></section>
   </form>`);
+}
+
+const ACCES_JS = `
+const b2a=(s)=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+const a2b=(b)=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+const post=async(u,d)=>{const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(d||{})});const j=await r.json();if(!r.ok)throw new Error(j.erreur||'erreur');return j;};
+const say=(t,ok)=>{const e=document.getElementById('msg');e.textContent=t;e.className='alert '+(ok?'ok':'bad');e.hidden=false;};
+async function connexion(){try{const o=await post('/acces/options-connexion');o.challenge=b2a(o.challenge);o.allowCredentials=o.allowCredentials.map(c=>({...c,id:b2a(c.id)}));
+const c=await navigator.credentials.get({publicKey:o});const r=c.response;
+await post('/acces/connexion',{id:c.id,response:{clientDataJSON:a2b(r.clientDataJSON),authenticatorData:a2b(r.authenticatorData),signature:a2b(r.signature)}});location.replace('/');}
+catch(e){say('Connexion refusée : '+e.message,false);}}
+async function inscription(){try{const code=document.getElementById('code').value.trim();const label=document.getElementById('label').value.trim()||'appareil';
+const o=await post('/acces/options-inscription',{code});o.challenge=b2a(o.challenge);o.user.id=b2a(o.user.id);o.excludeCredentials=(o.excludeCredentials||[]).map(c=>({...c,id:b2a(c.id)}));
+const c=await navigator.credentials.create({publicKey:o});const r=c.response;
+await post('/acces/inscription',{id:c.id,label,response:{clientDataJSON:a2b(r.clientDataJSON),attestationObject:a2b(r.attestationObject)}});say('Appareil enregistré. Touche « Ouvrir avec Face ID ».',true);document.getElementById('btn-connexion').hidden=false;}
+catch(e){say('Enregistrement refusé : '+e.message,false);}}
+document.getElementById('btn-connexion').addEventListener('click',connexion);
+const bi=document.getElementById('btn-inscription');if(bi)bi.addEventListener('click',inscription);
+if(!window.PublicKeyCredential)say("Ce navigateur ne sait pas faire les clés d'accès. Utilise Safari sur iPhone, ou un navigateur récent.",false);
+`;
+
+export function accesPage({ nonce, hasKeys }) {
+  return layout('Accès', '', `<h1>Accès au Cockpit</h1>
+  <p class="sub">Face ID (ou le code de ton appareil) ouvre tes écrans. Rien d'autre n'est demandé.</p>
+  <div id="msg" class="alert" hidden></div>
+  <div class="cards two">
+   <section class="card"><h2>Ouvrir</h2><p class="note">${hasKeys ? 'Avec un appareil déjà enregistré.' : 'Aucun appareil enregistré pour l’instant : enregistre d’abord celui-ci.'}</p>
+    <button type="button" id="btn-connexion"${hasKeys ? '' : ' hidden'}>Ouvrir avec Face ID</button></section>
+   <section class="card"><h2>Enregistrer cet appareil</h2>
+    <p class="note">Envoie <b>/acces</b> à ton bot Telegram : il te donne un code valable 10 minutes.</p>
+    <div class="f"><label for="code">Code reçu du bot</label><input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 chiffres"></div>
+    <div class="f"><label for="label">Nom de l’appareil</label><input id="label" placeholder="ex. iPhone de Sam" maxlength="40"></div>
+    <button type="button" id="btn-inscription">Enregistrer avec Face ID</button></section>
+  </div>`, { nonce, script: ACCES_JS, noNav: true });
 }
 
 export function errorPage(msg) { return layout('Erreur', '', `<h1>Oups</h1><p>${esc(msg)}</p>`); }
