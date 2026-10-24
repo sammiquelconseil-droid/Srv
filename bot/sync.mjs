@@ -1,8 +1,9 @@
 // Append a line to INBOX.md of a GitHub repo through the Contents API (no git on the server).
-export function createSync({ token, owner, fetchImpl = fetch }) {
-  if (!token) return null;
-  const h = { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'content-type': 'application/json' };
+export function createSync({ getToken, owner, fetchImpl = fetch }) {
   return async function append(repo, line) {
+    const token = await getToken();
+    if (!token) return false;
+    const h = { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'content-type': 'application/json' };
     const url = `https://api.github.com/repos/${owner}/${repo}/contents/INBOX.md`;
     const cur = await fetchImpl(url, { headers: h });
     let sha, body = '# INBOX.md\n\n';

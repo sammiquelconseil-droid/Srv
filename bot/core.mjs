@@ -7,9 +7,10 @@ export const stamp = (d) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(
 const CHOICES = Object.entries(PROJECTS).map(([k, p]) => ({ text: p.label, callback_data: `p:${k}` }));
 export const ASK = { text: 'HOC, LeadGen, Zaff, Lingfi ou Cockpit ?', reply_markup: { inline_keyboard: [CHOICES.slice(0, 3), CHOICES.slice(3)] } };
 
-export function createCore({ owner, pairCode, send, write, log, health, now = () => new Date() }) {
+export function createCore({ owner, pairCode, send, write, log, health, del = async () => {}, storeSecret = async () => {}, extra = {}, now = () => new Date() }) {
   const pending = new Map(); // message_id of the question -> note text
   let ownerId = owner || null;
+  let awaitingSecret = null; // name of the secret the next owner message contains
 
   const describe = (m) => {
     if (m.text) return m.text.trim();
@@ -27,9 +28,12 @@ export function createCore({ owner, pairCode, send, write, log, health, now = ()
   }
 
   async function command(cmd, arg, chat) {
+    if (extra[cmd]) return extra[cmd](chat, arg);
+    if (cmd === '/jeton') { awaitingSecret = 'github'; return send(chat, 'Envoie maintenant le jeton GitHub, seul dans un message. Je l’enregistre sur le serveur et j’efface ton message. /annuler pour abandonner.'); }
+    if (cmd === '/annuler') { awaitingSecret = null; return send(chat, 'Annulé.'); }
     if (cmd === '/start') return send(chat, 'Bot personnel prêt. Envoie-moi une note, une photo ou un vocal : je la range dans le bon projet. /sante pour l’état du serveur.');
     if (cmd === '/sante') { const h = await health(); return send(chat, h); }
-    if (cmd === '/aide') return send(chat, 'Écris ce que tu veux : je devine le projet (HOC, LeadGen, Zaff, Lingfi, Cockpit) ou je te demande. Commandes : /sante, /aide.');
+    if (cmd === '/aide') return send(chat, 'Écris ce que tu veux : je devine le projet (HOC, LeadGen, Zaff, Lingfi, Cockpit) ou je te demande. Commandes : /sante, /maj, /version, /jeton, /aide.');
     return send(chat, 'Commande inconnue. /aide');
   }
 
@@ -47,12 +51,19 @@ export function createCore({ owner, pairCode, send, write, log, health, now = ()
       }
       if (from.id !== ownerId) { await log(`ignored stranger ${from.id}`); return; }
       if (cq) {
+        if (extra.callback && String(cq.data || '').startsWith('x:')) { await extra.callback(chat, cq.data.slice(2)); return { answer: cq.id }; }
         const note = pending.get(cq.message.message_id);
         const key = String(cq.data || '').replace(/^p:/, '');
         if (note && PROJECTS[key]) { pending.delete(cq.message.message_id); await file(key, note, chat); }
         return { answer: cq.id };
       }
       if (!m) return;
+      if (awaitingSecret && m.text && !m.text.startsWith('/')) {
+        const name = awaitingSecret; awaitingSecret = null;
+        await storeSecret(name, m.text.trim());
+        await del(chat, m.message_id);
+        return send(chat, 'Jeton enregistré sur le serveur. Ton message a été effacé de la conversation.');
+      }
       if (m.text && m.text.startsWith('/')) { const [cmd, ...rest] = m.text.trim().split(/\s+/); return command(cmd, rest.join(' '), chat); }
       const text = describe(m);
       if (!text) return send(chat, 'Je ne sais pas lire ce type de message. Texte, photo, vocal ou fichier.');
