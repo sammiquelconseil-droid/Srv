@@ -62,12 +62,17 @@ systemctl restart fail2ban
 
 step "6/6 Contrôle de santé quotidien"
 install -d -m 700 /var/lib/cockpit
+[ -f /var/lib/cockpit/installe-le ] || touch /var/lib/cockpit/installe-le
 cat > /usr/local/bin/cockpit-sante <<'SH'
 #!/usr/bin/env bash
 # Écrit /var/lib/cockpit/sante.json ; le bot Telegram personnel le lira et n'alertera que si ok=false.
 set -uo pipefail
-now=$(date +%s); log=/var/log/unattended-upgrades/unattended-upgrades.log
-last=$( [ -f "$log" ] && stat -c %Y "$log" || echo 0 )
+now=$(date +%s)
+# Dernier passage des mises à jour automatiques ; avant le premier passage, date d'installation.
+last=0
+for f in /var/lib/apt/periodic/unattended-upgrades-stamp /var/log/unattended-upgrades/unattended-upgrades.log /var/lib/cockpit/installe-le; do
+  [ -f "$f" ] && { last=$(stat -c %Y "$f"); break; }
+done
 age_h=$(( (now - last) / 3600 ))
 pending=$(apt-get -s -o Debug::NoLocking=1 upgrade 2> /dev/null | grep -ci '^Inst .*security' || true)
 reboot_h=0
