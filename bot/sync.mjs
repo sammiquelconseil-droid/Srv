@@ -10,7 +10,7 @@ export function createSync({ getToken, owner, fetchImpl = fetch }) {
     if (cur.status === 200) { const j = await cur.json(); sha = j.sha; body = Buffer.from(j.content, 'base64').toString('utf8'); }
     else if (cur.status !== 404) throw new Error(`GitHub ${cur.status}`);
     body = body.replace(/\(vide\)\n?/, '').replace(/\s*$/, '\n') + line + '\n';
-    const put = await fetchImpl(url, { method: 'PUT', headers: h, body: JSON.stringify({ message: 'INBOX : note du bot personnel', content: Buffer.from(body).toString('base64'), sha }) });
+    const put = await fetchImpl(url, { method: 'PUT', headers: h, body: JSON.stringify({ message: 'INBOX : note du bot personnel [skip ci] [skip render] [skip netlify]', content: Buffer.from(body).toString('base64'), sha }) });
     if (!put.ok) throw new Error(`GitHub PUT ${put.status}`);
     return true;
   };
