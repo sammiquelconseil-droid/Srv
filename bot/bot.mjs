@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { createTelegram } from './telegram.mjs';
 import { createCore } from './core.mjs';
 import { createSync } from './sync.mjs';
-import { PROJECTS } from './classify.mjs';
+import { PROJECTS, normalize } from './classify.mjs';
 
 const env = process.env;
 const STATE = env.STATE_DIR || '/var/lib/cockpit';
@@ -33,7 +33,17 @@ async function remoteVersion() {
   return r.ok ? (await r.text()).trim() : '';
 }
 
+// Property names come from the private data file, so they never appear in published code.
+let extra = {};
+const loadExtra = async () => {
+  const d = await readJson(path.join(STATE, 'data', 'situation.json'), null);
+  const words = (d && d.biens || []).flatMap((b) => normalize(`${b.id} ${b.nom}`).split(/[^a-z0-9]+/)).filter((w) => w.length > 3);
+  extra = { cockpit: [...new Set(words)] };
+};
+await loadExtra(); setInterval(loadExtra, 3600e3);
+
 const core = createCore({
+  extraWords: () => extra,
   owner: state.owner, pairCode: env.PAIR_CODE, log,
   send: (chat, text, extra) => tg.send(chat, text, extra),
   del: (chat, id) => tg.call('deleteMessage', { chat_id: chat, message_id: id }).catch(() => {}),
@@ -60,6 +70,13 @@ const core = createCore({
       return tg.send(chat, `Version installée : ${here || 'inconnue'}\nVersion disponible : ${there}\nInstaller la mise à jour ?`, { reply_markup: { inline_keyboard: [[{ text: '✅ Valider', callback_data: `x:maj:${there}` }, { text: 'Annuler', callback_data: 'x:non' }]] } });
     },
     '/cle': async (chat) => sendKey(chat, true),
+    '/cockpit': async (chat) => {
+      const url = await readText(path.join(STATE, 'url'));
+      if (!url) return tg.send(chat, 'Les écrans du Cockpit ne sont pas encore installés. Envoie /maj.');
+      const enable = await readText(path.join(STATE, 'serve-a-activer'));
+      const tip = url.startsWith('https') ? '' : `\n\nAdresse simple (sans cadenas) mais privée : seuls tes appareils reliés à Tailscale y accèdent.${enable ? `\nPour une adresse avec cadenas, ouvre ce lien et touche Enable, puis envoie /maj : ${enable}` : ''}`;
+      return tg.send(chat, `🧭 Ton Cockpit : ${url}\n\nOuvre-le dans Safari, avec Tailscale allumé sur ton iPhone. Pour l'avoir comme une appli : bouton Partager → « Sur l'écran d'accueil ».${tip}`);
+    },
     callback: async (chat, data) => {
       if (data === 'cle-ok') {
         await fs.rm(KEY_FILE, { force: true });

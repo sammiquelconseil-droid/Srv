@@ -4,15 +4,16 @@ export const PROJECTS = {
   leadgen: { label: 'LeadGen', repo: 'leadgen-renov', words: ['leadgen', 'ouz', 'pompe', 'pac', 'lead', 'leads', 'installateur', 'installateurs', 'rge', 'renov', 'devis', 'meta', 'n8n', 'cloudflare'] },
   zaff: { label: 'Zaff', repo: 'les-zaff', words: ['zaff', 'vendix', 'render', 'neon', 'payhip', 'yupoo', 'vinted', 'streetwear', 'guangzhou', 'vetement', 'vetements'] },
   lingfi: { label: 'Lingfi', repo: 'Boutique', words: ['lingfi', 'boutique', 'tenant', 'marchand', 'hetzner', 'storagebox'] },
-  cockpit: { label: 'Cockpit', repo: 'cockpit', words: ['cockpit', 'impot', 'impots', 'urssaf', 'tva', 'maison', 'maisons', 'loyer', 'loyers', 'credit', 'credits', 'banque', 'astaffort', 'monnerie', 'bedarieux', 'serveur', 'hostinger', 'tailscale', 'salaire', 'abonnement', 'abonnements', 'patrimoine', 'bot'] },
+  cockpit: { label: 'Cockpit', repo: 'cockpit', words: ['cockpit', 'impot', 'impots', 'urssaf', 'tva', 'maison', 'maisons', 'loyer', 'loyers', 'credit', 'credits', 'banque', 'serveur', 'hostinger', 'tailscale', 'salaire', 'abonnement', 'abonnements', 'patrimoine', 'bot'] },
 };
 
 export const normalize = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
-export function classify(text) {
+// extra: { project: [words] } added at runtime from private data (e.g. property names), never published.
+export function classify(text, extra = {}) {
   const tokens = new Set(normalize(text).split(/[^a-z0-9]+/).filter(Boolean));
   const scores = {};
-  for (const [key, p] of Object.entries(PROJECTS)) scores[key] = p.words.filter((w) => tokens.has(w)).length;
+  for (const [key, p] of Object.entries(PROJECTS)) scores[key] = p.words.concat(extra[key] || []).filter((w) => tokens.has(w)).length;
   const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   const [best, second] = ranked;
   const project = best[1] > 0 && best[1] > (second ? second[1] : 0) ? best[0] : null;

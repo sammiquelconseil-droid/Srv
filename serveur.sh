@@ -76,3 +76,92 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now cockpit-sauvegarde.timer > /dev/null
 /usr/local/sbin/cockpit-sauvegarde || true
+
+# --- Application Cockpit (écrans) ----------------------------------------------------------
+RAW=https://raw.githubusercontent.com/sammiquelconseil-droid/srv/main
+install -d -m 755 /opt/cockpit-app/app /opt/cockpit-app/src
+install -d -m 750 -o cockpit -g cockpit /var/lib/cockpit/data
+tmpf=$(mktemp)
+curl -fsSL -H 'Cache-Control: no-cache' "$RAW/cockpit-app/FILES" -o "$tmpf"
+while read -r f; do
+  [[ "$f" =~ ^(app|src)/[a-z]+\.mjs$ ]] || { echo "liste invalide : $f"; exit 1; }
+  curl -fsSL -H 'Cache-Control: no-cache' "$RAW/cockpit-app/$f" -o "/opt/cockpit-app/$f.new"
+  node --check "/opt/cockpit-app/$f.new"
+done < "$tmpf"
+while read -r f; do mv "/opt/cockpit-app/$f.new" "/opt/cockpit-app/$f"; done < "$tmpf"
+rm -f "$tmpf"
+
+# Données : copiées depuis le dépôt privé cockpit (dossier/situation.json) avec le jeton du bot.
+cat > /usr/local/sbin/cockpit-donnees <<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+tok=$(cat /var/lib/cockpit/secrets/github 2> /dev/null) || { echo "pas de jeton"; exit 0; }
+t=$(mktemp)
+if curl -fsSL -H "Authorization: Bearer $tok" -H "Accept: application/vnd.github.raw" \
+     "https://api.github.com/repos/sammiquelconseil-droid/cockpit/contents/dossier/situation.json" -o "$t" && jq -e '.biens | length > 0' "$t" > /dev/null; then
+  install -m 640 -o cockpit -g cockpit "$t" /var/lib/cockpit/data/situation.json
+fi
+rm -f "$t"
+SH
+chmod 755 /usr/local/sbin/cockpit-donnees
+cat > /etc/systemd/system/cockpit-donnees.service <<'UNIT'
+[Unit]
+Description=Cockpit : copie des données depuis le dépôt privé
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cockpit-donnees
+UNIT
+cat > /etc/systemd/system/cockpit-donnees.timer <<'UNIT'
+[Unit]
+Description=Cockpit : données toutes les heures
+[Timer]
+OnCalendar=hourly
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+/usr/local/sbin/cockpit-donnees
+
+# Adresse : https via « tailscale serve » si la fonction est activée sur le réseau privé,
+# sinon l'application écoute directement sur l'adresse privée du serveur (jamais sur internet).
+url=""; host=127.0.0.1
+if timeout 25 tailscale serve --bg --https=443 http://127.0.0.1:8080 > /tmp/ts-serve.log 2>&1; then
+  url="https://$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')"
+  rm -f /var/lib/cockpit/serve-a-activer
+else
+  timeout 10 tailscale serve reset > /dev/null 2>&1 || true
+  grep -o 'https://login.tailscale.com/[^ ]*' /tmp/ts-serve.log | head -1 > /var/lib/cockpit/serve-a-activer || true
+  chown cockpit:cockpit /var/lib/cockpit/serve-a-activer 2> /dev/null || true
+  host=$(tailscale ip -4 | head -1); url="http://$host:8080"
+fi
+rm -f /tmp/ts-serve.log
+echo "$url" > /var/lib/cockpit/url; chown cockpit:cockpit /var/lib/cockpit/url
+printf 'HOST=%s\nPORT=8080\nSTATE_DIR=/var/lib/cockpit\n' "$host" > /etc/cockpit/app.env
+
+cat > /etc/systemd/system/cockpit-app.service <<'UNIT'
+[Unit]
+Description=Cockpit : écrans (réseau privé uniquement)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+[Service]
+User=cockpit
+Group=cockpit
+EnvironmentFile=/etc/cockpit/app.env
+WorkingDirectory=/opt/cockpit-app
+ExecStart=/usr/bin/node /opt/cockpit-app/app/server.mjs
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/var/lib/cockpit
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now cockpit-donnees.timer > /dev/null
+systemctl enable cockpit-app > /dev/null
+systemctl restart cockpit-app
+sleep 2
+systemctl is-active --quiet cockpit-app && echo "application en marche : $url"

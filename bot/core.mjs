@@ -12,7 +12,7 @@ export const SECRET_COMMANDS = {
 
 export const ASK = { text: 'HOC, LeadGen, Zaff, Lingfi ou Cockpit ?', reply_markup: { inline_keyboard: [CHOICES.slice(0, 3), CHOICES.slice(3)] } };
 
-export function createCore({ owner, pairCode, send, write, log, health, del = async () => {}, storeSecret = async () => {}, extra = {}, now = () => new Date() }) {
+export function createCore({ extraWords = () => ({}), owner, pairCode, send, write, log, health, del = async () => {}, storeSecret = async () => {}, extra = {}, now = () => new Date() }) {
   const pending = new Map(); // message_id of the question -> note text
   let ownerId = owner || null;
   let awaitingSecret = null; // name of the secret the next owner message contains
@@ -38,7 +38,7 @@ export function createCore({ owner, pairCode, send, write, log, health, del = as
     if (cmd === '/annuler') { awaitingSecret = null; return send(chat, 'Annulé.'); }
     if (cmd === '/start') return send(chat, 'Bot personnel prêt. Envoie-moi une note, une photo ou un vocal : je la range dans le bon projet. /sante pour l’état du serveur.');
     if (cmd === '/sante') { const h = await health(); return send(chat, h); }
-    if (cmd === '/aide') return send(chat, 'Écris ce que tu veux : je devine le projet (HOC, LeadGen, Zaff, Lingfi, Cockpit) ou je te demande. Commandes : /sante, /maj, /version, /test_sauvegarde, /jeton, /aide.');
+    if (cmd === '/aide') return send(chat, 'Écris ce que tu veux : je devine le projet (HOC, LeadGen, Zaff, Lingfi, Cockpit) ou je te demande. Commandes : /cockpit, /sante, /maj, /version, /test_sauvegarde, /jeton, /aide.');
     return send(chat, 'Commande inconnue. /aide');
   }
 
@@ -72,7 +72,7 @@ export function createCore({ owner, pairCode, send, write, log, health, del = as
       if (m.text && m.text.startsWith('/')) { const [cmd, ...rest] = m.text.trim().split(/\s+/); return command(cmd, rest.join(' '), chat); }
       const text = describe(m);
       if (!text) return send(chat, 'Je ne sais pas lire ce type de message. Texte, photo, vocal ou fichier.');
-      const { project } = classify(text);
+      const { project } = classify(text, extraWords());
       if (project) return file(project, text, chat);
       const sent = await send(chat, ASK.text, { reply_markup: ASK.reply_markup });
       pending.set(sent.message_id, text);
