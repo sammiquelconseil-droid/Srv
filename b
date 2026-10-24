@@ -32,6 +32,13 @@ while read -r f; do
   curl -fsSL -H 'Cache-Control: no-cache' "$RAW/bot/$f" -o "$tmp/$f" || fail "téléchargement impossible"
   node --check "$tmp/$f" 2> /dev/null || fail "fichier $f invalide"
 done < "$tmp/FILES"
+# Partie serveur (facultative) : réglages du serveur publiés avec la version, exécutés en root.
+if curl -fsSL -H 'Cache-Control: no-cache' "$RAW/serveur.sh" -o "$tmp/serveur.sh" 2> /dev/null; then
+  bash -n "$tmp/serveur.sh" || fail "partie serveur invalide"
+  if ! timeout 900 bash "$tmp/serveur.sh" >> /var/log/cockpit-maj.log 2>&1; then
+    fail "la partie serveur a échoué (détails dans /var/log/cockpit-maj.log), le bot n'a pas été changé"
+  fi
+fi
 rm -rf /opt/cockpit-bot.prev && cp -a /opt/cockpit-bot /opt/cockpit-bot.prev
 install -m 644 "$tmp"/*.mjs "$tmp/VERSION" /opt/cockpit-bot/
 echo "ok $want" > "$RES"; chown cockpit:cockpit "$RES"
