@@ -39,7 +39,7 @@ export function createCore({ extraWords = () => ({}), owner, pairCode, send, wri
     if (cmd === '/annuler') { awaitingSecret = null; return send(chat, 'Annulé.'); }
     if (cmd === '/start') return send(chat, 'Bot personnel prêt. Envoie-moi une note, une photo ou un vocal : je la range dans le bon projet. /sante pour l’état du serveur.');
     if (cmd === '/sante') { const h = await health(); return send(chat, h); }
-    if (cmd === '/aide') return send(chat, 'Écris ce que tu veux : je devine le projet (HOC, LeadGen, Zaff, Lingfi, Cockpit) ou je te demande. Commandes : /cockpit, /acces, /appareils, /sante, /maj, /version, /test_sauvegarde, /jeton, /aide.');
+    if (cmd === '/aide') return send(chat, 'Écris ce que tu veux : je devine le projet (HOC, LeadGen, Zaff, Lingfi, Cockpit) ou je te demande. Commandes : /cockpit, /acces, /appareils, /sante, /maj, /version, /test_sauvegarde, /secours, /jeton, /aide.');
     return send(chat, 'Commande inconnue. /aide');
   }
 

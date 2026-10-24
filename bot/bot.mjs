@@ -72,6 +72,8 @@ const core = createCore({
       return tg.send(chat, `Version installée : ${here || 'inconnue'}\nVersion disponible : ${there}\nInstaller la mise à jour ?`, { reply_markup: { inline_keyboard: [[{ text: '✅ Valider', callback_data: `x:maj:${there}` }, { text: 'Annuler', callback_data: 'x:non' }]] } });
     },
     '/cle': async (chat) => sendKey(chat, true),
+    '/nouvelle_cle': async (chat) => tg.send(chat, '⚠️ Nouvelle clé de sauvegarde : les sauvegardes déjà faites deviendront illisibles (le serveur, lui, garde tout). À faire seulement si l’ancienne clé est perdue. Continuer ?', { reply_markup: { inline_keyboard: [[{ text: '✅ Valider', callback_data: 'x:nouvelle-cle' }, { text: 'Annuler', callback_data: 'x:non' }]] } }),
+    '/secours': async (chat) => tg.send(chat, SECOURS_TEXT),
     '/acces': async (chat) => {
       const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
       const f = path.join(STATE, 'data', 'acces-code.json');
@@ -107,6 +109,12 @@ const core = createCore({
       return tg.send(chat, `🧭 Ton Cockpit : ${url}\n\nOuvre-le dans Safari, avec Tailscale allumé sur ton iPhone. Pour l'avoir comme une appli : bouton Partager → « Sur l'écran d'accueil ».${tip}`);
     },
     callback: async (chat, data) => {
+      if (data === 'nouvelle-cle') {
+        delete state.keySent; delete state.keyMsg; await saveState();
+        await fs.writeFile(path.join(STATE, 'cle-demandee'), new Date().toISOString());
+        await log('new backup key requested');
+        return tg.send(chat, 'Nouvelle clé en cours. Je te la remets dans la minute : range-la sur ta fiche papier et dans Mots de passe.');
+      }
       if (data === 'cle-ok') {
         await fs.rm(KEY_FILE, { force: true });
         if (state.keyMsg) await tg.call('deleteMessage', { chat_id: chat, message_id: state.keyMsg }).catch(() => {});
@@ -122,6 +130,18 @@ const core = createCore({
     },
   },
 });
+
+const SECOURS_TEXT = `🧾 Ta fiche de secours papier doit contenir :
+1. Clé de sauvegarde AGE-SECRET-KEY-… (app Mots de passe)
+2. Mot de passe root du serveur (app Mots de passe)
+3. 10 codes de secours GitHub (github.com/settings/security)
+4. 10 codes de secours Google (myaccount.google.com/security)
+5. Clé de secours Apple, 28 caractères (Réglages → ton nom → Connexion et sécurité)
+6. Code de jumelage du bot (console serveur : grep PAIR /etc/cockpit/bot.env)
+7. L’adresse du Cockpit (/cockpit)
+Range-la chez toi, jamais en photo ni dans Notes. Une copie dans une enveloppe fermée chez une personne de confiance, si tu veux.
+Les scénarios complets (iPhone perdu, iCloud, Telegram, Google, GitHub, serveur) sont dans docs/SECOURS.md de ton dépôt privé.
+Je te rappelle de vérifier la fiche tous les 6 mois.`;
 
 function backupLine(b) {
   if (!b) return '💾 Sauvegarde : pas encore faite.';
@@ -186,6 +206,10 @@ setInterval(async () => {
   const b = await readJson(path.join(STATE, 'sauvegarde.json'), null);
   const stale = !h || Date.now() - Date.parse(h.date) > 36 * 3600e3;
   const badBackup = b && (!b.distant || Date.now() - Date.parse(b.date) > 36 * 3600e3);
+  if (!state.ficheRappel || Date.now() - state.ficheRappel > 182 * 86400e3) {
+    state.ficheRappel = Date.now(); await saveState();
+    await tg.send(owner, '🧾 Rappel semestriel : vérifie ta fiche de secours papier (/secours pour la liste). Mets-y la date du jour.');
+  }
   if ((stale || !h.ok || badBackup) && state.lastAlert !== today) {
     state.lastAlert = today; await saveState();
     await tg.send(owner, stale ? '⚠️ Le contrôle de santé du serveur n’a pas tourné depuis plus de 36 h.' : '⚠️ Serveur ou sauvegarde : quelque chose cloche. Tape /sante.');

@@ -73,7 +73,38 @@ RandomizedDelaySec=10m
 [Install]
 WantedBy=timers.target
 UNIT
+# Renouvellement de la clé de sauvegarde demandé depuis Telegram (/nouvelle_cle + Valider)
+cat > /usr/local/sbin/cockpit-nouvelle-cle <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+REQ=/var/lib/cockpit/cle-demandee
+[ -f "$REQ" ] || exit 0
+rm -f "$REQ"
+umask 077
+age-keygen -o /var/lib/cockpit/cle-a-remettre 2> /dev/null
+age-keygen -y /var/lib/cockpit/cle-a-remettre > /etc/cockpit/sauvegarde.pub
+chown cockpit:cockpit /var/lib/cockpit/cle-a-remettre; chmod 600 /var/lib/cockpit/cle-a-remettre; chmod 644 /etc/cockpit/sauvegarde.pub
+rm -f /var/lib/cockpit/bot-state-keysent
+/usr/local/sbin/cockpit-sauvegarde || true
+SH
+chmod 755 /usr/local/sbin/cockpit-nouvelle-cle
+cat > /etc/systemd/system/cockpit-nouvelle-cle.path <<'UNIT'
+[Unit]
+Description=Cockpit : demande de nouvelle clé de sauvegarde
+[Path]
+PathExists=/var/lib/cockpit/cle-demandee
+[Install]
+WantedBy=multi-user.target
+UNIT
+cat > /etc/systemd/system/cockpit-nouvelle-cle.service <<'UNIT'
+[Unit]
+Description=Cockpit : nouvelle clé de sauvegarde
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cockpit-nouvelle-cle
+UNIT
 systemctl daemon-reload
+systemctl enable --now cockpit-nouvelle-cle.path > /dev/null
 systemctl enable --now cockpit-sauvegarde.timer > /dev/null
 /usr/local/sbin/cockpit-sauvegarde || true
 
