@@ -1,5 +1,6 @@
 // Bot logic, independent of Telegram and of the filesystem so it can be tested.
 import { classify, PROJECTS } from './classify.mjs';
+import { findSecret } from './secrets.mjs';
 
 const pad = (n) => String(n).padStart(2, '0');
 export const stamp = (d) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -72,6 +73,12 @@ export function createCore({ extraWords = () => ({}), owner, pairCode, send, wri
       if (m.text && m.text.startsWith('/')) { const [cmd, ...rest] = m.text.trim().split(/\s+/); return command(cmd, rest.join(' '), chat); }
       const text = describe(m);
       if (!text) return send(chat, 'Je ne sais pas lire ce type de message. Texte, photo, vocal ou fichier.');
+      const secret = findSecret(`${m.text || ''} ${m.caption || ''}`);
+      if (secret) {
+        await del(chat, m.message_id);
+        await log(`note refused: looks like ${secret}`);
+        return send(chat, `🔒 Ta note ressemble à un ${secret}. Je ne l’ai pas rangée (elle aurait fini sur GitHub) et j’ai effacé ton message. Si c’était une erreur, reformule sans le numéro ou le code.`);
+      }
       const { project } = classify(text, extraWords());
       if (project) return file(project, text, chat);
       const sent = await send(chat, ASK.text, { reply_markup: ASK.reply_markup });

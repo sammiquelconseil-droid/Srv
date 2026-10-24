@@ -22,7 +22,10 @@ main{max-width:1200px;margin:0 auto;padding:16px}h1{font-size:26px;margin:4px 0 
 .ok{color:var(--ok);background:var(--okbg)}.warn{color:var(--warn);background:var(--warnbg)}.bad{color:var(--bad);background:var(--badbg)}.info{color:var(--info);background:var(--infobg)}.muted{color:var(--ink2);background:var(--bg)}
 .bar{height:8px;background:var(--bg);border-radius:4px;overflow:hidden;margin:6px 0 10px}.bar i{display:block;height:100%;background:var(--ok)}
 .alert{border-radius:12px;padding:10px 12px;font-size:14px;margin-top:10px}.note{font-size:13px;color:var(--ink2);margin-top:8px}
-ul.plain{list-style:none;padding:0;margin:0}ul.plain li{padding:7px 0;border-top:1px solid var(--line);font-size:15px}ul.plain li:first-child{border-top:0}
+form .f{display:flex;flex-direction:column;gap:4px;margin:10px 0}form label{font-weight:600;font-size:14px;color:var(--ink2)}
+input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);min-height:44px;width:100%}
+button{font:inherit;font-weight:700;background:var(--accent);color:#fff;border:0;border-radius:12px;padding:12px 18px;min-height:44px;margin-top:8px}
+header{flex-wrap:wrap}ul.plain{list-style:none;padding:0;margin:0}ul.plain li{padding:7px 0;border-top:1px solid var(--line);font-size:15px}ul.plain li:first-child{border-top:0}
 `;
 
 function layout(title, current, body) {
@@ -30,7 +33,7 @@ function layout(title, current, body) {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#2f5bd3"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Cockpit">
 <title>${esc(title)} · Cockpit</title><style>${CSS}</style></head><body>
-<header><b>Cockpit</b><nav>${link('/', "Aujourd'hui")}${link('/patrimoine', 'Patrimoine')}</nav></header><main>${body}</main></body></html>`;
+<header><b>Cockpit</b><nav>${link('/', "Aujourd'hui")}${link('/patrimoine', 'Patrimoine')}${link('/mes-chiffres', 'Mes chiffres')}</nav></header><main>${body}</main></body></html>`;
 }
 
 export function todayPage({ now, sante, sauvegarde, notes, echeances, alertes }) {
@@ -77,6 +80,24 @@ export function patrimoinePage({ summary, asOf }) {
      ${loyers}${hyp}${al}<p class="note">Paiement : ${esc(f.paiement)}.</p></section>`;
   }).join('');
   return layout('Patrimoine', '/patrimoine', `<h1>Patrimoine</h1><p class="sub">Calculé au ${esc(date(asOf))}, en supposant toutes les échéances payées jusqu'ici. La valeur actuelle des biens n'est pas encore estimée.</p>${kpis}<div class="cards">${cards}</div>`);
+}
+
+export function chiffresPage({ data, prive, token, message }) {
+  const v = (k) => (prive && prive[k] != null ? (prive[k].montantCents / 100).toFixed(2).replace('.', ',') : '');
+  const when = (k) => (prive && prive[k] ? ` <span class="badge info">Saisi le ${esc(new Date(prive[k].le).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }))}</span>` : '');
+  const abos = data.abonnements.map((a, i) => `<div class="f"><label for="abo${i}">${esc(a.nom)} ${badge(a.statut)}${when('abo:' + a.nom)}</label>
+    <input id="abo${i}" name="abo:${esc(a.nom)}" inputmode="decimal" autocomplete="off" placeholder="${(a.montantCents / 100).toFixed(2).replace('.', ',')} (${esc((STATUT[a.statut] || [a.statut])[0].toLowerCase())})" value="${v('abo:' + a.nom)}"></div>`).join('');
+  return layout('Mes chiffres', '/mes-chiffres', `<h1>Mes chiffres</h1>
+  <p class="sub">Ces montants restent sur ton serveur privé (et dans tes sauvegardes chiffrées). Ils ne vont jamais sur GitHub ni dans une conversation.</p>
+  ${message ? `<div class="alert ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}</div>` : ''}
+  <form method="post" action="/mes-chiffres" class="cards two" style="margin-top:12px">
+   <input type="hidden" name="jeton" value="${esc(token)}">
+   <section class="card"><h2>Revenus</h2>
+    <div class="f"><label for="salaire">Salaire net mensuel (€)${when('salaire')}</label><input id="salaire" name="salaire" inputmode="decimal" autocomplete="off" placeholder="ex. 1 650,00" value="${v('salaire')}"></div>
+    <p class="note">Laisse vide ce que tu ne sais pas encore.</p></section>
+   <section class="card"><h2>Abonnements réels (€ / mois)</h2>${abos}
+    <button type="submit">Enregistrer</button></section>
+  </form>`);
 }
 
 export function errorPage(msg) { return layout('Erreur', '', `<h1>Oups</h1><p>${esc(msg)}</p>`); }

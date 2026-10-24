@@ -3,3 +3,4 @@ core.mjs
 classify.mjs
 telegram.mjs
 sync.mjs
+secrets.mjs

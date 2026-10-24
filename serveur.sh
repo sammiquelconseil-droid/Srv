@@ -156,6 +156,8 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=/var/lib/cockpit
+ReadWritePaths=/var/lib/cockpit/data
+UMask=0077
 [Install]
 WantedBy=multi-user.target
 UNIT
