@@ -110,7 +110,13 @@ async function testBackup(key) {
 // Hand the backup key to Sam once, then wait for his confirmation before deleting it from the server.
 async function sendKey(chat, force) {
   const key = await readText(KEY_FILE);
-  if (!key) return force ? tg.send(chat, 'Il n’y a plus de clé sur le serveur : elle t’a déjà été remise. Elle est dans ton app Mots de passe.') : null;
+  if (!key) {
+    if (!force) return null;
+    const installed = !!(await readText('/etc/cockpit/sauvegarde.pub'));
+    return tg.send(chat, installed
+      ? 'Il n’y a plus de clé sur le serveur : elle t’a déjà été remise. Elle est dans ton app Mots de passe (« Cockpit — clé de sauvegarde »).'
+      : 'Les sauvegardes ne sont pas encore installées sur le serveur, donc pas encore de clé. Dis-le à Claude.');
+  }
   if (state.keySent && !force) return null;
   const sent = await tg.send(chat, `🔑 Clé de tes sauvegardes. Sans elle, personne ne peut les ouvrir, pas même toi.\n\n1. Appuie longuement sur la clé ci-dessous et copie-la.\n2. App Mots de passe → + → titre « Cockpit — clé de sauvegarde » → colle-la dans Mot de passe → Enregistrer.\n3. Reviens ici et touche le bouton.\n\nCe message s’efface dans 10 minutes (/cle pour le revoir tant que tu n’as pas touché le bouton).\n\n<code>${key.split('\n').find((l) => l.startsWith('AGE-SECRET-KEY-')) || ''}</code>`,
     { parse_mode: 'HTML', protect_content: true, reply_markup: { inline_keyboard: [[{ text: '✅ Rangée dans Mots de passe', callback_data: 'x:cle-ok' }]] } });
