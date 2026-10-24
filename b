@@ -2,6 +2,7 @@
 # Cockpit — installe ou met à jour le bot Telegram personnel. Rejouable.
 # Lancement : bash <(curl -fsSL https://raw.githubusercontent.com/sammiquelconseil-droid/srv/main/b)
 set -euo pipefail
+trap 'echo; echo "ÉCHEC à la ligne $LINENO : envoie une capture à Claude, ne relance rien."' ERR
 RAW=https://raw.githubusercontent.com/sammiquelconseil-droid/srv/main
 [ "$(id -u)" = 0 ] || { echo "Lance-le en root."; exit 1; }
 export DEBIAN_FRONTEND=noninteractive
@@ -15,7 +16,7 @@ for f in bot.mjs core.mjs classify.mjs telegram.mjs sync.mjs; do curl -fsSL "$RA
 
 if [ ! -f /etc/cockpit/bot.env ]; then
   read -rp "Colle le jeton du bot donné par BotFather, puis Entrée : " TOKEN < /dev/tty
-  PAIR=$(tr -dc a-z0-9 < /dev/urandom | head -c 8)
+  PAIR=$(od -An -N4 -tx1 /dev/urandom | tr -d " \n")
   umask 077
   printf 'TELEGRAM_BOT_TOKEN=%s\nPAIR_CODE=%s\nSTATE_DIR=/var/lib/cockpit\n' "$TOKEN" "$PAIR" > /etc/cockpit/bot.env
   chown root:cockpit /etc/cockpit/bot.env; chmod 640 /etc/cockpit/bot.env

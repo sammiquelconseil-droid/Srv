@@ -2,6 +2,7 @@
 # Cockpit — installation du serveur (Debian, Hostinger KVM 1). Rejouable sans danger.
 # Ne contient aucun secret. Lancement : bash <(curl -fsSL https://raw.githubusercontent.com/sammiquelconseil-droid/srv/main/i)
 set -euo pipefail
+trap 'echo; echo "ÉCHEC à la ligne $LINENO : envoie une capture à Claude, ne relance rien."' ERR
 export DEBIAN_FRONTEND=noninteractive
 step() { printf '\n== %s\n' "$*"; }
 [ "$(id -u)" = 0 ] || { echo "Lance-le en root."; exit 1; }
