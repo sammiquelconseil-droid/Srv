@@ -61,7 +61,7 @@ systemctl enable --now fail2ban > /dev/null
 systemctl restart fail2ban
 
 step "6/6 Contrôle de santé quotidien"
-install -d -m 700 /var/lib/cockpit
+install -d -m 755 /var/lib/cockpit
 [ -f /var/lib/cockpit/installe-le ] || touch /var/lib/cockpit/installe-le
 cat > /usr/local/bin/cockpit-sante <<'SH'
 #!/usr/bin/env bash
@@ -82,7 +82,7 @@ ts=$(tailscale status > /dev/null 2>&1 && echo true || echo false)
 ok=true
 { [ "$age_h" -gt 48 ] || [ "$pending" -gt 0 ] || [ "$reboot_h" -gt 24 ] || [ "$disk" -gt 85 ] || [ "$ts" = false ]; } && ok=false
 printf '{"date":"%s","ok":%s,"maj_il_y_a_h":%s,"securite_en_attente":%s,"redemarrage_en_attente_h":%s,"disque_pct":%s,"reseau_prive":%s}\n' \
-  "$(date -Iseconds)" "$ok" "$age_h" "$pending" "$reboot_h" "$disk" "$ts" > /var/lib/cockpit/sante.json
+  "$(date -Iseconds)" "$ok" "$age_h" "$pending" "$reboot_h" "$disk" "$ts" > /var/lib/cockpit/sante.json.tmp && mv /var/lib/cockpit/sante.json.tmp /var/lib/cockpit/sante.json && chmod 644 /var/lib/cockpit/sante.json
 SH
 chmod 755 /usr/local/bin/cockpit-sante
 cat > /etc/systemd/system/cockpit-sante.service <<'UNIT'
