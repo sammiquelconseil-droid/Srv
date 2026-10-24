@@ -1,6 +1,8 @@
 // Entry point on the server. Env: TELEGRAM_BOT_TOKEN, PAIR_CODE, STATE_DIR, GITHUB_OWNER.
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { createTelegram } from './telegram.mjs';
 import { createCore } from './core.mjs';
 import { createSync } from './sync.mjs';
@@ -11,6 +13,9 @@ const STATE = env.STATE_DIR || '/var/lib/cockpit';
 const INBOX = path.join(STATE, 'inbox');
 const SECRETS = path.join(STATE, 'secrets');
 const RAW = 'https://raw.githubusercontent.com/sammiquelconseil-droid/srv/main';
+const BACKUPS = '/var/backups/cockpit';
+const KEY_FILE = path.join(STATE, 'cle-a-remettre');
+const run = promisify(execFile);
 await fs.mkdir(INBOX, { recursive: true });
 await fs.mkdir(SECRETS, { recursive: true, mode: 0o700 });
 const readJson = async (f, d) => { try { return JSON.parse(await fs.readFile(f, 'utf8')); } catch { return d; } };
@@ -32,7 +37,10 @@ const core = createCore({
   owner: state.owner, pairCode: env.PAIR_CODE, log,
   send: (chat, text, extra) => tg.send(chat, text, extra),
   del: (chat, id) => tg.call('deleteMessage', { chat_id: chat, message_id: id }).catch(() => {}),
-  storeSecret: async (name, value) => { await fs.writeFile(path.join(SECRETS, name), value + '\n', { mode: 0o600 }); await log(`secret stored: ${name}`); },
+  storeSecret: async (name, value) => {
+    if (name === 'age') return testBackup(value);
+    await fs.writeFile(path.join(SECRETS, name), value + '\n', { mode: 0o600 }); await log(`secret stored: ${name}`);
+  },
   write: async (project, line) => {
     await fs.appendFile(path.join(INBOX, `${project}.md`), line + '\n');
     try { const ok = await sync(PROJECTS[project].repo, line); return { synced: !!ok }; }
@@ -40,8 +48,8 @@ const core = createCore({
   },
   health: async () => {
     const h = await readJson(path.join(STATE, 'sante.json'), null);
-    if (!h) return 'Pas encore de contrôle de santé.';
-    return `${h.ok ? '✅ Serveur en bonne santé' : '⚠️ Serveur à surveiller'} (${h.date.slice(0, 16).replace('T', ' ')})\nMises à jour : il y a ${h.maj_il_y_a_h} h · sécurité en attente : ${h.securite_en_attente} · redémarrage en attente : ${h.redemarrage_en_attente_h} h · disque : ${h.disque_pct} % · réseau privé : ${h.reseau_prive ? 'oui' : 'NON'}`;
+    const head = !h ? 'Pas encore de contrôle de santé.' : `${h.ok ? '✅ Serveur en bonne santé' : '⚠️ Serveur à surveiller'} (${h.date.slice(0, 16).replace('T', ' ')})\nMises à jour : il y a ${h.maj_il_y_a_h} h · sécurité en attente : ${h.securite_en_attente} · redémarrage en attente : ${h.redemarrage_en_attente_h} h · disque : ${h.disque_pct} % · réseau privé : ${h.reseau_prive ? 'oui' : 'NON'}`;
+    return `${head}\n${backupLine(await readJson(path.join(STATE, 'sauvegarde.json'), null))}`;
   },
   extra: {
     '/version': async (chat) => tg.send(chat, `Version du bot : ${(await localVersion()) || 'inconnue'}`),
@@ -51,7 +59,14 @@ const core = createCore({
       if (there === here) return tg.send(chat, `Déjà à jour (${here}).`);
       return tg.send(chat, `Version installée : ${here || 'inconnue'}\nVersion disponible : ${there}\nInstaller la mise à jour ?`, { reply_markup: { inline_keyboard: [[{ text: '✅ Valider', callback_data: `x:maj:${there}` }, { text: 'Annuler', callback_data: 'x:non' }]] } });
     },
+    '/cle': async (chat) => sendKey(chat, true),
     callback: async (chat, data) => {
+      if (data === 'cle-ok') {
+        await fs.rm(KEY_FILE, { force: true });
+        if (state.keyMsg) await tg.call('deleteMessage', { chat_id: chat, message_id: state.keyMsg }).catch(() => {});
+        delete state.keyMsg; delete state.keySent; await saveState(); await log('backup key handed over and deleted');
+        return tg.send(chat, '✅ Clé effacée du serveur. Elle n’existe plus que dans ton app Mots de passe. Teste-la une fois avec /test_sauvegarde.');
+      }
       if (data.startsWith('maj:')) {
         await fs.writeFile(path.join(STATE, 'maj-demandee'), data.slice(4) + '\n');
         await log(`update requested ${data.slice(4)}`);
@@ -61,6 +76,48 @@ const core = createCore({
     },
   },
 });
+
+function backupLine(b) {
+  if (!b) return '💾 Sauvegarde : pas encore faite.';
+  const age = Math.round((Date.now() - Date.parse(b.date)) / 3600e3);
+  return `💾 Sauvegarde : il y a ${age} h · ${Math.ceil(b.taille / 1024)} Ko · copie hors du serveur : ${b.distant ? 'oui (vérifiée)' : 'NON'}${b.erreur ? ` (${b.erreur})` : ''}`;
+}
+
+async function latestBackup() {
+  const names = (await fs.readdir(BACKUPS).catch(() => [])).filter((n) => n.endsWith('.tar.age')).sort();
+  return names.length ? path.join(BACKUPS, names[names.length - 1]) : null;
+}
+
+async function testBackup(key) {
+  const file = await latestBackup();
+  if (!file) return 'Aucune sauvegarde à tester pour l’instant.';
+  if (!/^AGE-SECRET-KEY-1[0-9A-Z]+$/.test(key)) return 'Ce n’est pas une clé de sauvegarde (elle commence par AGE-SECRET-KEY-1). Rien n’a été gardé.';
+  const tmp = await fs.mkdtemp(path.join(STATE, 'tmp-'));
+  const keyPath = path.join(tmp, 'k');
+  try {
+    await fs.writeFile(keyPath, key + '\n', { mode: 0o600 });
+    await run('age', ['-d', '-i', keyPath, '-o', path.join(tmp, 'a.tar'), file]);
+    const { stdout } = await run('tar', ['-tf', path.join(tmp, 'a.tar')]);
+    const n = stdout.split('\n').filter(Boolean).length;
+    await log('backup restore test ok');
+    return `✅ Ta clé ouvre bien la dernière sauvegarde (${path.basename(file)}) : ${n} éléments lisibles. La clé a été oubliée et ton message effacé.`;
+  } catch {
+    await log('backup restore test failed');
+    return '❌ Cette clé n’ouvre pas la dernière sauvegarde. Vérifie que tu as copié la bonne clé (AGE-SECRET-KEY-…). Ton message a été effacé.';
+  } finally { await fs.rm(tmp, { recursive: true, force: true }); }
+}
+
+// Hand the backup key to Sam once, then wait for his confirmation before deleting it from the server.
+async function sendKey(chat, force) {
+  const key = await readText(KEY_FILE);
+  if (!key) return force ? tg.send(chat, 'Il n’y a plus de clé sur le serveur : elle t’a déjà été remise. Elle est dans ton app Mots de passe.') : null;
+  if (state.keySent && !force) return null;
+  const sent = await tg.send(chat, `🔑 Clé de tes sauvegardes. Sans elle, personne ne peut les ouvrir, pas même toi.\n\n1. Appuie longuement sur la clé ci-dessous et copie-la.\n2. App Mots de passe → + → titre « Cockpit — clé de sauvegarde » → colle-la dans Mot de passe → Enregistrer.\n3. Reviens ici et touche le bouton.\n\nCe message s’efface dans 10 minutes (/cle pour le revoir tant que tu n’as pas touché le bouton).\n\n<code>${key.split('\n').find((l) => l.startsWith('AGE-SECRET-KEY-')) || ''}</code>`,
+    { parse_mode: 'HTML', protect_content: true, reply_markup: { inline_keyboard: [[{ text: '✅ Rangée dans Mots de passe', callback_data: 'x:cle-ok' }]] } });
+  state.keySent = Date.now(); state.keyMsg = sent.message_id; await saveState();
+  setTimeout(() => tg.call('deleteMessage', { chat_id: chat, message_id: sent.message_id }).catch(() => {}), 10 * 60e3);
+}
+setInterval(() => { if (core.ownerId) sendKey(core.ownerId, false).catch((e) => log(`key send: ${e.message}`)); }, 60e3);
 
 // Report the result of an update, if one just happened.
 const result = await readText(path.join(STATE, 'maj-resultat'));
@@ -74,10 +131,12 @@ setInterval(async () => {
   const owner = core.ownerId; if (!owner) return;
   const h = await readJson(path.join(STATE, 'sante.json'), null);
   const today = new Date().toISOString().slice(0, 10);
+  const b = await readJson(path.join(STATE, 'sauvegarde.json'), null);
   const stale = !h || Date.now() - Date.parse(h.date) > 36 * 3600e3;
-  if ((stale || !h.ok) && state.lastAlert !== today) {
+  const badBackup = b && (!b.distant || Date.now() - Date.parse(b.date) > 36 * 3600e3);
+  if ((stale || !h.ok || badBackup) && state.lastAlert !== today) {
     state.lastAlert = today; await saveState();
-    await tg.send(owner, stale ? '⚠️ Le contrôle de santé du serveur n’a pas tourné depuis plus de 36 h.' : '⚠️ Contrôle de santé du serveur : quelque chose cloche. Tape /sante.');
+    await tg.send(owner, stale ? '⚠️ Le contrôle de santé du serveur n’a pas tourné depuis plus de 36 h.' : '⚠️ Serveur ou sauvegarde : quelque chose cloche. Tape /sante.');
   }
 }, 3600e3);
 

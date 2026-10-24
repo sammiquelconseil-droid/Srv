@@ -5,6 +5,11 @@ const pad = (n) => String(n).padStart(2, '0');
 export const stamp = (d) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
 const CHOICES = Object.entries(PROJECTS).map(([k, p]) => ({ text: p.label, callback_data: `p:${k}` }));
+export const SECRET_COMMANDS = {
+  '/jeton': { name: 'github', prompt: 'Envoie maintenant le jeton GitHub, seul dans un message. Je l’enregistre sur le serveur et j’efface ton message. /annuler pour abandonner.' },
+  '/test_sauvegarde': { name: 'age', prompt: 'Colle ta clé de sauvegarde (elle commence par AGE-SECRET-KEY-), seule dans un message. Je l’utilise une seule fois pour ouvrir la dernière sauvegarde, puis je l’oublie et j’efface ton message. /annuler pour abandonner.' },
+};
+
 export const ASK = { text: 'HOC, LeadGen, Zaff, Lingfi ou Cockpit ?', reply_markup: { inline_keyboard: [CHOICES.slice(0, 3), CHOICES.slice(3)] } };
 
 export function createCore({ owner, pairCode, send, write, log, health, del = async () => {}, storeSecret = async () => {}, extra = {}, now = () => new Date() }) {
@@ -29,11 +34,11 @@ export function createCore({ owner, pairCode, send, write, log, health, del = as
 
   async function command(cmd, arg, chat) {
     if (extra[cmd]) return extra[cmd](chat, arg);
-    if (cmd === '/jeton') { awaitingSecret = 'github'; return send(chat, 'Envoie maintenant le jeton GitHub, seul dans un message. Je l’enregistre sur le serveur et j’efface ton message. /annuler pour abandonner.'); }
+    if (SECRET_COMMANDS[cmd]) { awaitingSecret = SECRET_COMMANDS[cmd].name; return send(chat, SECRET_COMMANDS[cmd].prompt); }
     if (cmd === '/annuler') { awaitingSecret = null; return send(chat, 'Annulé.'); }
     if (cmd === '/start') return send(chat, 'Bot personnel prêt. Envoie-moi une note, une photo ou un vocal : je la range dans le bon projet. /sante pour l’état du serveur.');
     if (cmd === '/sante') { const h = await health(); return send(chat, h); }
-    if (cmd === '/aide') return send(chat, 'Écris ce que tu veux : je devine le projet (HOC, LeadGen, Zaff, Lingfi, Cockpit) ou je te demande. Commandes : /sante, /maj, /version, /jeton, /aide.');
+    if (cmd === '/aide') return send(chat, 'Écris ce que tu veux : je devine le projet (HOC, LeadGen, Zaff, Lingfi, Cockpit) ou je te demande. Commandes : /sante, /maj, /version, /test_sauvegarde, /jeton, /aide.');
     return send(chat, 'Commande inconnue. /aide');
   }
 
@@ -60,9 +65,9 @@ export function createCore({ owner, pairCode, send, write, log, health, del = as
       if (!m) return;
       if (awaitingSecret && m.text && !m.text.startsWith('/')) {
         const name = awaitingSecret; awaitingSecret = null;
-        await storeSecret(name, m.text.trim());
         await del(chat, m.message_id);
-        return send(chat, 'Jeton enregistré sur le serveur. Ton message a été effacé de la conversation.');
+        const reply = await storeSecret(name, m.text.trim());
+        return send(chat, reply || 'Jeton enregistré sur le serveur. Ton message a été effacé de la conversation.');
       }
       if (m.text && m.text.startsWith('/')) { const [cmd, ...rest] = m.text.trim().split(/\s+/); return command(cmd, rest.join(' '), chat); }
       const text = describe(m);
