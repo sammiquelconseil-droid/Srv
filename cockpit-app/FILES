@@ -5,3 +5,4 @@ app/cbor.mjs
 src/schedules.mjs
 src/patrimoine.mjs
 app/sauvegarde.mjs
+src/echeancier.mjs

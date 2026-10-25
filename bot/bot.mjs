@@ -201,7 +201,8 @@ if (result && state.owner) {
 // Hourly check, three levels (alerts.mjs): only incidents and decisions are sent, each once per change.
 setInterval(async () => {
   const owner = core.ownerId; if (!owner) return;
-  const current = evaluate({ sante: await readJson(path.join(STATE, 'sante.json'), null), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json'), null), ficheRappel: state.ficheRappel });
+  const todayIso = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
+  const current = evaluate({ sante: await readJson(path.join(STATE, 'sante.json'), null), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json'), null), ficheRappel: state.ficheRappel, todayIso });
   if (queue.size >= 3) current.push({ cause: 'github', level: 'critique', text: `${queue.size} notes n’arrivent pas sur GitHub (jeton expiré ?). Elles sont gardées sur le serveur.` });
   await alertTick({ current, state, send: (m) => tg.send(owner, m), log });
   await saveState();

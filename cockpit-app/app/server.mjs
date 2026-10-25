@@ -3,6 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { summarize, upcoming } from '../src/patrimoine.mjs';
+import { upcomingDeadlines } from '../src/echeancier.mjs';
 import crypto from 'node:crypto';
 import { todayPage, patrimoinePage, chiffresPage, accesPage, errorPage, sauvegardesPage } from './views.mjs';
 import { pendingKey, testBackup, storeGithubToken } from './sauvegarde.mjs';
@@ -97,7 +98,7 @@ export async function render(url, opts = {}) {
   const summary = summarize(data, asOf);
   if (url === '/') {
     const alertes = summary.biens.flatMap((b) => (b.alertes || []).map((a) => `${b.nom} : ${a}`));
-    return [200, todayPage({ now: new Date(), sante: await readJson(path.join(STATE, 'sante.json')), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json')), notes: await lastNotes(), echeances: upcoming(summary, asOf), alertes })];
+    return [200, todayPage({ now: new Date(), sante: await readJson(path.join(STATE, 'sante.json')), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json')), notes: await lastNotes(), echeances: upcoming(summary, asOf), fiscal: upcomingDeadlines(asOf, 45), alertes })];
   }
   if (url === '/patrimoine') return [200, patrimoinePage({ summary, asOf })];
   if (url === '/mes-chiffres') return [200, chiffresPage({ data, prive: await readJson(PRIVE), token: FORM_TOKEN, message: opts.message })];

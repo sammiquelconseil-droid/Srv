@@ -37,7 +37,7 @@ function layout(title, current, body, { nonce, script, noNav } = {}) {
 <header><b>Cockpit</b>${noNav ? '' : `<nav>${link('/', "Aujourd'hui")}${link('/patrimoine', 'Patrimoine')}${link('/mes-chiffres', 'Mes chiffres')}${link('/sauvegardes', 'Sauvegardes')}</nav><form method="post" action="/deconnexion" style="margin:0"><button type="submit" class="ghost">Verrouiller</button></form>`}</header><main>${body}</main>${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`;
 }
 
-export function todayPage({ now, sante, sauvegarde, notes, echeances, alertes }) {
+export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [], alertes }) {
   const d = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
   const srv = sante ? `${sante.ok ? '<span class="badge ok">En bonne santé</span>' : '<span class="badge bad">À surveiller</span>'}
     <div class="row"><span>Correctifs de sécurité en attente</span><span>${sante.securite_en_attente}</span></div>
@@ -47,11 +47,13 @@ export function todayPage({ now, sante, sauvegarde, notes, echeances, alertes })
     <div class="row"><span>Dernière</span><span>${esc(new Date(sauvegarde.date).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' }))}</span></div>
     <div class="row"><span>Taille</span><span>${Math.ceil(sauvegarde.taille / 1024)} Ko</span></div>` : '<p class="note">Pas encore de sauvegarde.</p>';
   const ech = echeances.length ? `<ul class="plain">${echeances.map((e) => `<li><b>${esc(date(e.date))}</b> · ${esc(e.nom)} · ${eur(e.montantCents)}</li>`).join('')}</ul><p class="note">Montants prévus par les actes. Le paiement réel sera confirmé par ton relevé bancaire.</p>` : '<p class="note">Aucune échéance dans les 30 prochains jours.</p>';
+  const fis = fiscal.length ? `<ul class="plain">${fiscal.map((e) => `<li><b>${esc(date(e.date))}</b> · ${esc(e.libelle)} ${badge(e.statut)}<div class="note">${esc(e.note)}</div></li>`).join('')}</ul>` : '<p class="note">Aucune échéance d’impôt ou d’URSSAF dans les 45 prochains jours.</p>';
   const nts = notes.length ? `<ul class="plain">${notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : '<p class="note">Aucune note. Envoie-en une à ton bot Telegram.</p>';
   const al = alertes.map((a) => `<div class="alert warn">${esc(a)}</div>`).join('');
   return layout("Aujourd'hui", '/', `<h1>Bonjour Sam</h1><p class="sub">${esc(d)}</p>${al}
   <div class="cards" style="margin-top:12px">
    <section class="card"><h2>Échéances à venir (30 jours)</h2>${ech}</section>
+   <section class="card"><h2>Impôts et URSSAF (45 jours)</h2>${fis}<p class="note">Le bot te prévient 30 jours, 7 jours et la veille. Une échéance n’est jamais comptée comme payée sans ta confirmation.</p></section>
    <section class="card"><h2>Dernières notes</h2>${nts}</section>
    <section class="card"><h2>Serveur</h2>${srv}<h2 style="margin-top:14px">Sauvegarde</h2>${sv}</section>
   </div>`);
