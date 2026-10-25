@@ -8,9 +8,16 @@ const lastDay = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 export const RULES = [
   {
     id: 'urssaf', libelle: 'Déclaration URSSAF du chiffre d’affaires du mois précédent (même sans vente)', mensuel: true,
-    premiere: '2027-01-31', // activité créée le 13/10/2026 : première déclaration à la fin des 3 mois civils complets suivants
-    note: 'Dernier jour du mois suivant ; si week-end ou férié, report au jour ouvré suivant (sauf exception annoncée par l’URSSAF). Sur autoentrepreneur.urssaf.fr.',
-    source: 'https://www.autoentrepreneur.urssaf.fr/portail/accueil/une-question/toutes-les-fiches-pratiques/declarer-et-payer-mes-cotisation.html', verifieLe: '2026-10-25', statut: 'verifie',
+    // Activité créée le 13/10/2026 : première déclaration avant la fin du mois qui suit les 3 mois civils complets
+    // suivant le début (nov., déc., janv.) → 28/02/2027, un montant par mois depuis octobre. Corrigé le 25/10 (était 31/01).
+    premiere: '2027-02-28', premiereAVerifier: true,
+    note: 'Dernier jour du mois suivant ; si week-end ou férié, report au jour ouvré suivant. Première déclaration : date exacte affichée dans ton espace autoentrepreneur.urssaf.fr (à confirmer), un chiffre par mois depuis octobre 2026, zéro compris.',
+    source: 'https://entreprendre.service-public.gouv.fr/vosdroits/F23257', verifieLe: '2026-10-25', statut: 'verifie',
+  },
+  {
+    id: 'cfe-declaration-initiale', libelle: 'Déclaration initiale de CFE (formulaire 1447-C-SD) à envoyer au service des impôts des entreprises', date: '2026-12-31',
+    note: 'Obligatoire pour toute entreprise créée en 2026, micro-entreprise comprise, même si aucune CFE n’est due l’année de création. Formulaire reçu par courrier après la création, sinon à télécharger sur impots.gouv.fr ; à retourner au SIE avant le 1er janvier 2027. Garde une copie et la preuve d’envoi.',
+    source: 'https://entreprendre.service-public.gouv.fr/vosdroits/F23547', verifieLe: '2026-10-25', statut: 'verifie',
   },
   {
     id: 'cfe', libelle: 'CFE (cotisation foncière des entreprises)', mois: 12, jour: 15, aPartirDe: 2027, // pas de CFE l’année de création (2026)
@@ -27,12 +34,21 @@ export const RULES = [
     note: '15 octobre par chèque ou virement (moins de 300 €), 20 octobre minuit en ligne ; prélèvement le 26 octobre. Avis en septembre sur impots.gouv.fr.',
     source: 'https://presse.economie.gouv.fr/taxes-foncieres-2026-les-dates-a-retenir-pour-le-paiement/', verifieLe: '2026-10-25', statut: 'verifie',
   },
+  {
+    id: 'facture-electronique', libelle: 'Facturation électronique : tes factures aux entreprises passent par une plateforme agréée', date: '2027-09-01',
+    note: 'Depuis le 1er septembre 2026, tu dois déjà pouvoir RECEVOIR des factures électroniques : choisir une plateforme agréée (liste officielle sur impots.gouv.fr ; des offres gratuites existent, à vérifier). À partir du 1er septembre 2027 : émission obligatoire et transmission des données de ventes aux particuliers. Aucun abonnement sans ton accord.',
+    source: 'https://www.economie.gouv.fr/entreprises/gerer-sa-micro-entreprise/micro-entrepreneur-auto-entrepreneur-quelles-sont-vos-obligations', verifieLe: '2026-10-25', statut: 'a_verifier',
+  },
 ];
 
 // Status of one occurrence: a yearly date checked for one year is « à vérifier » for the following years.
-export const statutPour = (rule, dateIso) => (rule.anneeVerifiee && Number(dateIso.slice(0, 4)) > rule.anneeVerifiee ? 'a_verifier' : rule.statut);
+export const statutPour = (rule, dateIso) => {
+  if (rule.premiereAVerifier && dateIso === rule.premiere) return 'a_verifier';
+  return rule.anneeVerifiee && Number(dateIso.slice(0, 4)) > rule.anneeVerifiee ? 'a_verifier' : rule.statut;
+};
 
 export function occurrences(rule, fromIso, months = 13) {
+  if (rule.date) return rule.date >= fromIso ? [rule.date] : []; // one-off deadline
   const [y0, m0] = fromIso.split('-').map(Number);
   const out = [];
   for (let i = 0; i < months; i++) {

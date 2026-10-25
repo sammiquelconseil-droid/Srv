@@ -12,7 +12,7 @@ import { PROJECTS, normalize } from './classify.mjs';
 import { findSecret } from './secrets.mjs';
 import { createQueue, itemFor, createDeliver } from './queue.mjs';
 import { evaluate, alertTick } from './alerts.mjs';
-import { synthese } from './projets.mjs';
+import { synthese, attentes } from './projets.mjs';
 import { keyMessage, restoreTestMessage, tokenMessage, newKeyMessage, guardSend } from './secours.mjs';
 
 const env = process.env;
@@ -67,8 +67,11 @@ const loadExtra = async () => {
 };
 await loadExtra(); setInterval(loadExtra, 3600e3);
 
+// What waits for Sam, in full, for the Cockpit screen only (STATE/decisions.json; never sent to Telegram).
+const refreshDecisions = async () => { try { saveJson('decisions.json', await attentes({ read: sync.read })); } catch (e) { await log(`decisions.json: ${e.message}`); } };
 const projets = async (chat, decisionsOnly) => {
   await tg.send(chat, '⏳ Je lis tes projets…');
+  await refreshDecisions();
   const alertes = evaluate({ sante: await readJson(path.join(STATE, 'sante.json'), null), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json'), null), ficheRappel: state.ficheRappel });
   const text = await synthese({ read: sync.read, commit: sync.commit, decisionsOnly, alertes, queued: queue.size });
   if (findSecret(text)) { await log('projets: summary withheld (secret-looking)'); return tg.send(chat, '🔒 Synthèse retenue : une ligne ressemblait à un secret. Lis-la dans le Cockpit.'); }
@@ -206,7 +209,9 @@ setInterval(async () => {
   if (queue.size >= 3) current.push({ cause: 'github', level: 'critique', text: `${queue.size} notes n’arrivent pas sur GitHub (jeton expiré ?). Elles sont gardées sur le serveur.` });
   await alertTick({ current, state, send: (m) => tg.send(owner, m), log });
   await saveState();
+  await refreshDecisions();
 }, 3600e3);
+setTimeout(() => refreshDecisions(), 20e3);
 
 let offset = state.offset || 0;
 for (;;) {

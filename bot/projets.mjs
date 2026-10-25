@@ -26,6 +26,22 @@ export const SOURCES = {
   leadgen: { attente: null },
 };
 
+// Full text of what waits for Sam, for the Cockpit screen (behind Tailscale + Face ID): no minimising,
+// markdown stripped. Written by the bot to STATE/decisions.json, read by the app. Never sent to Telegram.
+const plain = (s, n = 400) => { const t = String(s || '').replace(/\*\*|`|^#+\s*|^- (\[ \] )?/g, '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+export async function attentes({ read: readAny, now = new Date() }) {
+  const hocRepo = PROJECTS.hoc.repo;
+  const projets = [];
+  for (const k of ORDER) {
+    const p = PROJECTS[k], src = SOURCES[k];
+    if (!src || !src.attente || p.repo === hocRepo) continue;
+    const body = (await readAny(p.repo, src.attente[0]).catch(() => null)) || '';
+    const lignes = (src.attente[1](body) || []).map((l) => plain(l));
+    if (lignes.length) projets.push({ key: k, label: p.label, lignes });
+  }
+  return { date: now.toISOString(), total: projets.reduce((n, p) => n + p.lignes.length, 0), projets };
+}
+
 const clean = (s, n = 150) => { const t = minimise(String(s || '').replace(/\*\*|`|^#+\s*|^- (\[ \] )?/g, '')).replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
 
 // Only explicitly allowed fields reach Telegram: the structured « Phase actuelle » line of ROADMAP.md
@@ -46,15 +62,16 @@ export async function synthese({ read: readAny, commit: commitAny, decisionsOnly
     const phase = ((await get('ROADMAP.md')) || '').match(PHASE);
     const attente = (src.attente ? (src.attente[1]((await get(src.attente[0])) || '') || []) : []).map((l) => clean(l, 90));
     decisions += attente.length;
-    if (decisionsOnly) { if (attente.length) rows.push(`${p.label} :\n${attente.slice(0, 3).map((a) => `   🧑 ${a}`).join('\n')}${attente.length > 3 ? `\n   … et ${attente.length - 3} autre(s)` : ''}`); continue; }
+    if (decisionsOnly) { if (attente.length) rows.push(`${p.label} : ${attente.length}`); continue; }
     const c = await commit(p.repo).catch(() => null);
     const lines = [`${RANK[k]}. ${p.label} — ${phase ? clean(phase[0], 90) : 'pas de ligne « Phase actuelle » dans son ROADMAP (format commun à adopter)'}`];
     if (c && c.date) lines.push(`   Dernier changement : ${c.date.slice(8, 10)}/${c.date.slice(5, 7)}`);
-    if (attente.length) lines.push(`   🧑 Pour toi (${attente.length}) : ${attente[0]}`);
+    if (attente.length) lines.push(`   🧑 Pour toi : ${attente.length} (détail dans le Cockpit)`);
     rows.push(lines.join('\n'));
   }
   const at = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(now).replace(' ', ' ').replace(',', ''); // heure de Paris
   const crit = alertes.filter((a) => a.level === 'critique').length;
-  if (decisionsOnly) return rows.length ? `🧑 Décisions qui n’attendent que toi (${decisions}) — ${at}\n\n${rows.join('\n\n')}\n\nDétail et recommandations : /moi dans une session Claude du projet.` : 'Rien n’attend ta décision dans les fichiers des projets. Je continue.';
+  // Telegram gets the COUNT only (not end-to-end encrypted, Sam's choice of 25/10): the text is on the Cockpit screen.
+  if (decisionsOnly) return rows.length ? `🧑 ${decisions} chose(s) n’attendent que toi — ${at}\n${rows.join(' · ')}\n\nLe détail (quoi, quand, pourquoi toi) est dans ton Cockpit, page Aujourd’hui.` : 'Rien n’attend ta décision dans les fichiers des projets. Je continue.';
   return `📊 Tes projets — ${at}\n${ORDER.length} projets · ${decisions} décision(s) pour toi · ${crit} incident(s)${queued ? ` · ${queued} note(s) en attente d’envoi` : ''}\n\n${rows.join('\n\n')}\n\nLu à l’instant dans les fichiers des projets (rien n’est recopié). Décisions seules : /decisions`;
 }

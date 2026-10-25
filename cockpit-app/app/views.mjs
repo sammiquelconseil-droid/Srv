@@ -37,7 +37,11 @@ function layout(title, current, body, { nonce, script, noNav } = {}) {
 <header><b>Cockpit</b>${noNav ? '' : `<nav>${link('/', "Aujourd'hui")}${link('/patrimoine', 'Patrimoine')}${link('/mes-chiffres', 'Mes chiffres')}${link('/sauvegardes', 'Sauvegardes')}</nav><form method="post" action="/deconnexion" style="margin:0"><button type="submit" class="ghost">Verrouiller</button></form>`}</header><main>${body}</main>${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`;
 }
 
-export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [], alertes }) {
+export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [], alertes, attentes = null }) {
+  // What waits for Sam (date · gesture · why him), read by the bot in each project's files, shown HERE only.
+  const att = attentes && attentes.projets && attentes.projets.length
+    ? attentes.projets.map((p) => `<h3>${esc(p.label)}</h3><ol class="plain">${p.lignes.map((l) => `<li>${esc(l)}</li>`).join('')}</ol>`).join('') + `<p class="note">Mis à jour ${esc(new Date(attentes.date).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' }))}. Lu dans les fichiers de tes projets, dans l’ordre où les faire. Le bot ne montre que le nombre.</p>`
+    : (attentes ? '<p class="note">Rien n’attend ta décision.</p>' : '<p class="note">Pas encore lu : le bot remplit cette liste dans l’heure qui suit son démarrage.</p>');
   const d = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
   const srv = sante ? `${sante.ok ? '<span class="badge ok">En bonne santé</span>' : '<span class="badge bad">À surveiller</span>'}
     <div class="row"><span>Correctifs de sécurité en attente</span><span>${sante.securite_en_attente}</span></div>
@@ -52,6 +56,7 @@ export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [
   const al = alertes.map((a) => `<div class="alert warn">${esc(a)}</div>`).join('');
   return layout("Aujourd'hui", '/', `<h1>Bonjour Sam</h1><p class="sub">${esc(d)}</p>${al}
   <div class="cards" style="margin-top:12px">
+   <section class="card"><h2>🧑 À faire par toi${attentes && attentes.total ? ` (${attentes.total})` : ''}</h2>${att}</section>
    <section class="card"><h2>Échéances à venir (30 jours)</h2>${ech}</section>
    <section class="card"><h2>Impôts et URSSAF (45 jours)</h2>${fis}<p class="note">Le bot te prévient 30 jours, 7 jours et la veille. Une échéance n’est jamais comptée comme payée sans ta confirmation.</p></section>
    <section class="card"><h2>Dernières notes</h2>${nts}</section>
