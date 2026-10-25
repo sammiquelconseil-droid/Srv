@@ -1,5 +1,6 @@
 // Entry point on the server. Env: TELEGRAM_BOT_TOKEN, PAIR_CODE, STATE_DIR, GITHUB_OWNER.
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -53,10 +54,22 @@ const core = createCore({
     if (name === 'age') return testBackup(value);
     await fs.writeFile(path.join(SECRETS, name), value + '\n', { mode: 0o600 }); await log(`secret stored: ${name}`);
   },
+  pendingStore: { load: () => { try { return JSON.parse(fsSync.readFileSync(path.join(STATE, 'pending.json'), 'utf8')); } catch { return {}; } }, save: (o) => fsSync.writeFileSync(path.join(STATE, 'pending.json'), JSON.stringify(o)) },
+  fetchDocument: async (fileId) => {
+    try { const url = await tg.fileUrl(fileId); const r = await fetch(url); if (!r.ok) return null; const t = await r.text(); return t.length <= 200000 ? t : t.slice(0, 200000) + '\n[tronqué]'; } catch { return null; }
+  },
   write: async (project, line) => {
     await fs.appendFile(path.join(INBOX, `${project}.md`), line + '\n');
-    try { const ok = await sync(PROJECTS[project].repo, line); return { synced: !!ok }; }
-    catch (e) { await log(`sync failed ${project}: ${e.message}`); return { synced: false }; }
+    try {
+      const repo = PROJECTS[project].repo;
+      if (line.length > 1500 && sync.put) {
+        const name = `inbox/${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.md`;
+        await sync.put(repo, name, line.replace(/^- /, '') + '\n', 'INBOX : note longue du bot personnel [skip ci] [skip render] [skip netlify]');
+        const ok = await sync(repo, `${line.slice(0, 120).replace(/\s+/g, ' ')}… → texte complet : ${name}`);
+        return { synced: !!ok };
+      }
+      const ok = await sync(repo, line); return { synced: !!ok };
+    } catch (e) { await log(`sync failed ${project}: ${e.message}`); return { synced: false }; }
   },
   health: async () => {
     const h = await readJson(path.join(STATE, 'sante.json'), null);

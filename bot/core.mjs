@@ -11,10 +11,12 @@ export const SECRET_COMMANDS = {
   '/test_sauvegarde': { name: 'age', prompt: 'Colle ta clé de sauvegarde (elle commence par AGE-SECRET-KEY-), seule dans un message. Je l’utilise une seule fois pour ouvrir la dernière sauvegarde, puis je l’oublie et j’efface ton message. /annuler pour abandonner.' },
 };
 
-export const ASK = { text: 'HOC, LeadGen, Zaff, Lingfi ou Cockpit ?', reply_markup: { inline_keyboard: [CHOICES.slice(0, 3), CHOICES.slice(3)] } };
+export const ASK = { text: 'HOC, LeadGen, Zaff, Lingfi, Cockpit… ou tous ?', reply_markup: { inline_keyboard: [CHOICES.slice(0, 3), [...CHOICES.slice(3), { text: 'Tous', callback_data: 'p:tous' }]] } };
 
-export function createCore({ extraWords = () => ({}), owner, pairCode, send, write, log, health, del = async () => {}, storeSecret = async () => {}, extra = {}, now = () => new Date() }) {
-  const pending = new Map(); // message_id of the question -> note text
+export function createCore({ extraWords = () => ({}), schedule = (fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); }, fetchDocument = async () => null, pendingStore = null, owner, pairCode, send, write, log, health, del = async () => {}, storeSecret = async () => {}, extra = {}, now = () => new Date() }) {
+  const pending = new Map(pendingStore ? Object.entries(pendingStore.load() || {}) : []); // question message_id -> note text
+  const persistPending = () => { if (pendingStore) pendingStore.save(Object.fromEntries(pending)); };
+  const buffer = { chat: null, parts: [], at: 0, cancel: null }; // Telegram splits long texts into ~4096-char messages
   let ownerId = owner || null;
   let awaitingSecret = null; // name of the secret the next owner message contains
 
@@ -29,8 +31,26 @@ export function createCore({ extraWords = () => ({}), owner, pairCode, send, wri
 
   async function file(project, text, chat) {
     const line = `- ${stamp(now())} — ${text}`;
+    if (project === 'tous') {
+      const r = await write('cockpit', `- ${stamp(now())} — [pour tous les projets] ${text}`);
+      for (const k of Object.keys(PROJECTS)) if (k !== 'cockpit') await write(k, `- ${stamp(now())} — [consigne pour tous les projets, texte complet dans cockpit : « ${text.slice(0, 80).replace(/\s+/g, ' ')}… »]`);
+      return send(chat, `Noté pour tous les projets (texte complet dans Cockpit).${r && r.synced ? '' : ' (gardé sur le serveur, pas encore envoyé sur GitHub)'}`);
+    }
     const r = await write(project, line);
-    await send(chat, `Noté pour ${PROJECTS[project].label}.${r && r.synced ? '' : ' (gardé sur le serveur, pas encore envoyé sur GitHub)'}`);
+    await send(chat, `Noté pour ${PROJECTS[project].label}${text.length > 1500 ? ' (texte long rangé en fichier)' : ''}.${r && r.synced ? '' : ' (gardé sur le serveur, pas encore envoyé sur GitHub)'}`);
+  }
+
+  async function route(text, chat) {
+    const { project } = classify(text, extraWords());
+    if (project) return file(project, text, chat);
+    const sent = await send(chat, ASK.text, { reply_markup: ASK.reply_markup });
+    pending.set(sent.message_id, text); persistPending();
+  }
+
+  async function flushBuffer() {
+    const text = buffer.parts.join('\n'); const chat = buffer.chat;
+    buffer.parts = []; buffer.chat = null; buffer.cancel = null;
+    await route(text, chat);
   }
 
   async function command(cmd, arg, chat) {
@@ -58,9 +78,9 @@ export function createCore({ extraWords = () => ({}), owner, pairCode, send, wri
       if (from.id !== ownerId) { await log(`ignored stranger ${from.id}`); return; }
       if (cq) {
         if (extra.callback && String(cq.data || '').startsWith('x:')) { await extra.callback(chat, cq.data.slice(2)); return { answer: cq.id }; }
-        const note = pending.get(cq.message.message_id);
+        const note = pending.get(cq.message.message_id) || pending.get(String(cq.message.message_id));
         const key = String(cq.data || '').replace(/^p:/, '');
-        if (note && PROJECTS[key]) { pending.delete(cq.message.message_id); await file(key, note, chat); }
+        if (note && (PROJECTS[key] || key === 'tous')) { pending.delete(cq.message.message_id); pending.delete(String(cq.message.message_id)); persistPending(); await file(key, note, chat); }
         return { answer: cq.id };
       }
       if (!m) return;
@@ -71,18 +91,28 @@ export function createCore({ extraWords = () => ({}), owner, pairCode, send, wri
         return send(chat, reply || 'Jeton enregistré sur le serveur. Ton message a été effacé de la conversation.');
       }
       if (m.text && m.text.startsWith('/')) { const [cmd, ...rest] = m.text.trim().split(/\s+/); return command(cmd, rest.join(' '), chat); }
-      const text = describe(m);
+      let text = describe(m);
+      if (m.document && /\.(txt|md)$/i.test(m.document.file_name || '')) {
+        const content = await fetchDocument(m.document.file_id);
+        if (content) text = `[fichier ${m.document.file_name}]\n${content}`;
+      }
       if (!text) return send(chat, 'Je ne sais pas lire ce type de message. Texte, photo, vocal ou fichier.');
-      const secret = findSecret(`${m.text || ''} ${m.caption || ''}`);
+      const secret = findSecret(`${text} ${m.caption || ''}`);
       if (secret) {
         await del(chat, m.message_id);
         await log(`note refused: looks like ${secret}`);
         return send(chat, `🔒 Ta note ressemble à un ${secret}. Je ne l’ai pas rangée (elle aurait fini sur GitHub) et j’ai effacé ton message. Si c’était une erreur, reformule sans le numéro ou le code.`);
       }
-      const { project } = classify(text, extraWords());
-      if (project) return file(project, text, chat);
-      const sent = await send(chat, ASK.text, { reply_markup: ASK.reply_markup });
-      pending.set(sent.message_id, text);
+      // A long text pasted in Telegram arrives as several ~4096-char messages within a second: keep them together.
+      const t = now().getTime();
+      const continues = buffer.chat === chat && buffer.parts.length && t - buffer.at < 3000;
+      if (continues || (m.text && m.text.length >= 3500)) {
+        if (buffer.cancel) buffer.cancel();
+        buffer.chat = chat; buffer.parts.push(text); buffer.at = t;
+        buffer.cancel = schedule(() => flushBuffer().catch((e) => log(`flush: ${e.message}`)), 3000);
+        return;
+      }
+      return route(text, chat);
     },
   };
 }
