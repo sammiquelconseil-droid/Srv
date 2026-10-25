@@ -10,13 +10,16 @@ import { createCore } from './core.mjs';
 import { createSync } from './sync.mjs';
 import { PROJECTS, normalize } from './classify.mjs';
 import { findSecret } from './secrets.mjs';
+import { createQueue, itemFor, createDeliver } from './queue.mjs';
+import { evaluate, alertTick } from './alerts.mjs';
+import { synthese } from './projets.mjs';
+import { keyMessage, restoreTestMessage, tokenMessage, newKeyMessage, guardSend } from './secours.mjs';
 
 const env = process.env;
 const STATE = env.STATE_DIR || '/var/lib/cockpit';
 const INBOX = path.join(STATE, 'inbox');
 const SECRETS = path.join(STATE, 'secrets');
 const RAW = 'https://raw.githubusercontent.com/sammiquelconseil-droid/srv/main';
-const BACKUPS = '/var/backups/cockpit';
 const KEY_FILE = path.join(STATE, 'cle-a-remettre');
 const run = promisify(execFile);
 await fs.mkdir(INBOX, { recursive: true });
@@ -25,16 +28,35 @@ const readJson = async (f, d) => { try { return JSON.parse(await fs.readFile(f, 
 const readText = async (f) => { try { return (await fs.readFile(f, 'utf8')).trim(); } catch { return ''; } };
 const state = await readJson(path.join(STATE, 'bot-state.json'), {});
 const saveState = () => fs.writeFile(path.join(STATE, 'bot-state.json'), JSON.stringify(state));
+// Write then rename: a stop in the middle never leaves a half-written file.
+const saveJson = (name, o) => { const f = path.join(STATE, name); fsSync.writeFileSync(f + '.tmp', JSON.stringify(o)); fsSync.renameSync(f + '.tmp', f); };
 
 const tg = createTelegram(env.TELEGRAM_BOT_TOKEN);
-const sync = createSync({ getToken: () => readText(path.join(SECRETS, 'github')), owner: env.GITHUB_OWNER || 'sammiquelconseil-droid' });
 const log = (line) => fs.appendFile(path.join(STATE, 'bot.log'), `${new Date().toISOString()} ${line}\n`);
+tg.send = guardSend(tg.send, log); // nothing that looks like a secret ever leaves through Telegram
+const cockpitUrl = () => readText(path.join(STATE, 'url'));
+const RECEPTION = 'boite'; // reception branch used only once a repo's main refuses the bot's writes
+const sync = createSync({ getToken: () => readText(path.join(SECRETS, 'github')), owner: env.GITHUB_OWNER || 'sammiquelconseil-droid', branchOf: (repo) => (state.branches || {})[repo] || null });
 const localVersion = () => readText(new URL('./VERSION', import.meta.url));
 
 async function remoteVersion() {
   const r = await fetch(`${RAW}/VERSION?t=${Date.now()}`, { headers: { 'cache-control': 'no-cache' } });
   return r.ok ? (await r.text()).trim() : '';
 }
+
+const deliver = createDeliver(sync, (p) => PROJECTS[p].repo, {
+  onProtected: async (repo) => {
+    await sync.ensureBranch(repo, RECEPTION);
+    state.branches = { ...(state.branches || {}), [repo]: RECEPTION }; await saveState();
+    await log(`${repo}: main refused the write, notes now go to branch ${RECEPTION}`);
+  },
+});
+const queueFile = path.join(STATE, 'a-renvoyer.json');
+const queue = createQueue({ deliver, log,
+  load: () => { try { return JSON.parse(fsSync.readFileSync(queueFile, 'utf8')); } catch { return []; } },
+  save: (items) => saveJson('a-renvoyer.json', items) });
+const retry = async () => { if (queue.size) { const n = await queue.flush(); if (n) await log(`retried ${n} note(s)`); } };
+setTimeout(() => retry().catch(() => {}), 30e3); setInterval(() => retry().catch(() => {}), 3600e3);
 
 // Property names come from the private data file, so they never appear in published code.
 let extra = {};
@@ -45,31 +67,30 @@ const loadExtra = async () => {
 };
 await loadExtra(); setInterval(loadExtra, 3600e3);
 
+const projets = async (chat, decisionsOnly) => {
+  await tg.send(chat, '⏳ Je lis tes projets…');
+  const alertes = evaluate({ sante: await readJson(path.join(STATE, 'sante.json'), null), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json'), null), ficheRappel: state.ficheRappel });
+  const text = await synthese({ read: sync.read, commit: sync.commit, decisionsOnly, alertes, queued: queue.size });
+  if (findSecret(text)) { await log('projets: summary withheld (secret-looking)'); return tg.send(chat, '🔒 Synthèse retenue : une ligne ressemblait à un secret. Lis-la dans le Cockpit.'); }
+  for (let i = 0; i < text.length; i += 3900) await tg.send(chat, text.slice(i, i + 3900));
+};
+
 const core = createCore({
+  edit: (chat, id, markup) => tg.call('editMessageReplyMarkup', { chat_id: chat, message_id: id, reply_markup: markup }).catch(() => {}),
   extraWords: () => extra,
   owner: state.owner, pairCode: env.PAIR_CODE, log,
   send: (chat, text, extra) => tg.send(chat, text, extra),
   del: (chat, id) => tg.call('deleteMessage', { chat_id: chat, message_id: id }).catch(() => {}),
-  storeSecret: async (name, value) => {
-    if (name === 'age') return testBackup(value);
-    await fs.writeFile(path.join(SECRETS, name), value + '\n', { mode: 0o600 }); await log(`secret stored: ${name}`);
-  },
-  pendingStore: { load: () => { try { return JSON.parse(fsSync.readFileSync(path.join(STATE, 'pending.json'), 'utf8')); } catch { return {}; } }, save: (o) => fsSync.writeFileSync(path.join(STATE, 'pending.json'), JSON.stringify(o)) },
+  memoryStore: { load: () => { try { return JSON.parse(fsSync.readFileSync(path.join(STATE, 'memoire.json'), 'utf8')); } catch { return null; } }, save: (o) => saveJson('memoire.json', o) },
+  pendingStore: { load: () => { try { return JSON.parse(fsSync.readFileSync(path.join(STATE, 'pending.json'), 'utf8')); } catch { return {}; } }, save: (o) => saveJson('pending.json', o) },
   fetchDocument: async (fileId) => {
     try { const url = await tg.fileUrl(fileId); const r = await fetch(url); if (!r.ok) return null; const t = await r.text(); return t.length <= 200000 ? t : t.slice(0, 200000) + '\n[tronqué]'; } catch { return null; }
   },
-  write: async (project, line) => {
+  write: async (project, line, meta = {}) => {
     await fs.appendFile(path.join(INBOX, `${project}.md`), line + '\n');
-    try {
-      const repo = PROJECTS[project].repo;
-      if (line.length > 1500 && sync.put) {
-        const name = `inbox/${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.md`;
-        await sync.put(repo, name, line.replace(/^- /, '') + '\n', 'INBOX : note longue du bot personnel [skip ci] [skip render] [skip netlify]');
-        const ok = await sync(repo, `${line.slice(0, 120).replace(/\s+/g, ' ')}… → texte complet : ${name}`);
-        return { synced: !!ok };
-      }
-      const ok = await sync(repo, line); return { synced: !!ok };
-    } catch (e) { await log(`sync failed ${project}: ${e.message}`); return { synced: false }; }
+    const item = itemFor(project, line, meta, new Date().toISOString(), crypto.createHash('sha256').update(line).digest('hex').slice(0, 6));
+    try { if (await deliver(item)) return { synced: true }; } catch (e) { await log(`sync failed ${project}: ${e.message}`); }
+    queue.add(item); return { synced: false };
   },
   health: async () => {
     const h = await readJson(path.join(STATE, 'sante.json'), null);
@@ -77,6 +98,10 @@ const core = createCore({
     return `${head}\n${backupLine(await readJson(path.join(STATE, 'sauvegarde.json'), null))}`;
   },
   extra: {
+    '/projets': (chat) => projets(chat, false),
+    '/point': (chat) => projets(chat, false),
+    '/decisions': (chat) => projets(chat, true),
+    '/moi': (chat) => projets(chat, true),
     '/version': async (chat) => tg.send(chat, `Version du bot : ${(await localVersion()) || 'inconnue'}`),
     '/maj': async (chat) => {
       const [here, there] = [await localVersion(), await remoteVersion()];
@@ -84,7 +109,9 @@ const core = createCore({
       if (there === here) return tg.send(chat, `Déjà à jour (${here}).`);
       return tg.send(chat, `Version installée : ${here || 'inconnue'}\nVersion disponible : ${there}\nInstaller la mise à jour ?`, { reply_markup: { inline_keyboard: [[{ text: '✅ Valider', callback_data: `x:maj:${there}` }, { text: 'Annuler', callback_data: 'x:non' }]] } });
     },
-    '/cle': async (chat) => sendKey(chat, true),
+    '/cle': async (chat) => tg.send(chat, keyMessage({ pending: !!(await readText(KEY_FILE)), installed: !!(await readText('/etc/cockpit/sauvegarde.pub')), url: await cockpitUrl() })),
+    '/test_sauvegarde': async (chat) => tg.send(chat, restoreTestMessage(await cockpitUrl())),
+    '/jeton': async (chat) => tg.send(chat, tokenMessage(await cockpitUrl())),
     '/nouvelle_cle': async (chat) => tg.send(chat, '⚠️ Nouvelle clé de sauvegarde : les sauvegardes déjà faites deviendront illisibles (le serveur, lui, garde tout). À faire seulement si l’ancienne clé est perdue. Continuer ?', { reply_markup: { inline_keyboard: [[{ text: '✅ Valider', callback_data: 'x:nouvelle-cle' }, { text: 'Annuler', callback_data: 'x:non' }]] } }),
     '/secours': async (chat) => tg.send(chat, SECOURS_TEXT),
     '/acces': async (chat) => {
@@ -123,16 +150,10 @@ const core = createCore({
     },
     callback: async (chat, data) => {
       if (data === 'nouvelle-cle') {
-        delete state.keySent; delete state.keyMsg; await saveState();
+        delete state.keyNotified; await saveState();
         await fs.writeFile(path.join(STATE, 'cle-demandee'), new Date().toISOString());
         await log('new backup key requested');
-        return tg.send(chat, 'Nouvelle clé en cours. Je te la remets dans la minute : range-la sur ta fiche papier et dans Mots de passe.');
-      }
-      if (data === 'cle-ok') {
-        await fs.rm(KEY_FILE, { force: true });
-        if (state.keyMsg) await tg.call('deleteMessage', { chat_id: chat, message_id: state.keyMsg }).catch(() => {});
-        delete state.keyMsg; delete state.keySent; await saveState(); await log('backup key handed over and deleted');
-        return tg.send(chat, '✅ Clé effacée du serveur. Elle n’existe plus que dans ton app Mots de passe. Teste-la une fois avec /test_sauvegarde.');
+        return tg.send(chat, newKeyMessage(await cockpitUrl()));
       }
       if (data.startsWith('maj:')) {
         await fs.writeFile(path.join(STATE, 'maj-demandee'), data.slice(4) + '\n');
@@ -145,7 +166,7 @@ const core = createCore({
 });
 
 const SECOURS_TEXT = `🧾 Ta fiche de secours papier doit contenir :
-1. Clé de sauvegarde AGE-SECRET-KEY-… (app Mots de passe)
+1. Clé de sauvegarde (app Mots de passe ; affichée une seule fois dans le Cockpit, page Sauvegardes)
 2. Mot de passe root du serveur (app Mots de passe)
 3. 10 codes de secours GitHub (github.com/settings/security)
 4. 10 codes de secours Google (myaccount.google.com/security)
@@ -162,47 +183,13 @@ function backupLine(b) {
   return `💾 Sauvegarde : il y a ${age} h · ${Math.ceil(b.taille / 1024)} Ko · copie hors du serveur : ${b.distant ? 'oui (vérifiée)' : 'NON'}${b.erreur ? ` (${b.erreur})` : ''}`;
 }
 
-async function latestBackup() {
-  const names = (await fs.readdir(BACKUPS).catch(() => [])).filter((n) => n.endsWith('.tar.age')).sort();
-  return names.length ? path.join(BACKUPS, names[names.length - 1]) : null;
-}
-
-async function testBackup(key) {
-  const file = await latestBackup();
-  if (!file) return 'Aucune sauvegarde à tester pour l’instant.';
-  if (!/^AGE-SECRET-KEY-1[0-9A-Z]+$/.test(key)) return 'Ce n’est pas une clé de sauvegarde (elle commence par AGE-SECRET-KEY-1). Rien n’a été gardé.';
-  const tmp = await fs.mkdtemp(path.join(STATE, 'tmp-'));
-  const keyPath = path.join(tmp, 'k');
-  try {
-    await fs.writeFile(keyPath, key + '\n', { mode: 0o600 });
-    await run('age', ['-d', '-i', keyPath, '-o', path.join(tmp, 'a.tar'), file]);
-    const { stdout } = await run('tar', ['-tf', path.join(tmp, 'a.tar')]);
-    const n = stdout.split('\n').filter(Boolean).length;
-    await log('backup restore test ok');
-    return `✅ Ta clé ouvre bien la dernière sauvegarde (${path.basename(file)}) : ${n} éléments lisibles. La clé a été oubliée et ton message effacé.`;
-  } catch {
-    await log('backup restore test failed');
-    return '❌ Cette clé n’ouvre pas la dernière sauvegarde. Vérifie que tu as copié la bonne clé (AGE-SECRET-KEY-…). Ton message a été effacé.';
-  } finally { await fs.rm(tmp, { recursive: true, force: true }); }
-}
-
-// Hand the backup key to Sam once, then wait for his confirmation before deleting it from the server.
-async function sendKey(chat, force) {
-  const key = await readText(KEY_FILE);
-  if (!key) {
-    if (!force) return null;
-    const installed = !!(await readText('/etc/cockpit/sauvegarde.pub'));
-    return tg.send(chat, installed
-      ? 'Il n’y a plus de clé sur le serveur : elle t’a déjà été remise. Elle est dans ton app Mots de passe (« Cockpit — clé de sauvegarde »).'
-      : 'Les sauvegardes ne sont pas encore installées sur le serveur, donc pas encore de clé. Dis-le à Claude.');
-  }
-  if (state.keySent && !force) return null;
-  const sent = await tg.send(chat, `🔑 Clé de tes sauvegardes. Sans elle, personne ne peut les ouvrir, pas même toi.\n\n1. Appuie longuement sur la clé ci-dessous et copie-la.\n2. App Mots de passe → + → titre « Cockpit — clé de sauvegarde » → colle-la dans Mot de passe → Enregistrer.\n3. Reviens ici et touche le bouton.\n\nCe message s’efface dans 10 minutes (/cle pour le revoir tant que tu n’as pas touché le bouton).\n\n<code>${key.split('\n').find((l) => l.startsWith('AGE-SECRET-KEY-')) || ''}</code>`,
-    { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '✅ Rangée dans Mots de passe', callback_data: 'x:cle-ok' }]] } });
-  state.keySent = Date.now(); state.keyMsg = sent.message_id; await saveState();
-  setTimeout(() => tg.call('deleteMessage', { chat_id: chat, message_id: sent.message_id }).catch(() => {}), 10 * 60e3);
-}
-setInterval(() => { if (core.ownerId) sendKey(core.ownerId, false).catch((e) => log(`key send: ${e.message}`)); }, 60e3);
+// A new key (made by root after /nouvelle_cle) waits in KEY_FILE: say once that it is ready, never what it is.
+setInterval(async () => {
+  const owner = core.ownerId; if (!owner) return;
+  const pending = !!(await readText(KEY_FILE));
+  if (pending && !state.keyNotified) { state.keyNotified = Date.now(); await saveState(); await tg.send(owner, keyMessage({ pending: true, installed: true, url: await cockpitUrl() })); }
+  if (!pending && state.keyNotified) { delete state.keyNotified; await saveState(); await log('backup key taken from the server by the Cockpit page'); }
+}, 60e3);
 
 // Report the result of an update, if one just happened.
 const result = await readText(path.join(STATE, 'maj-resultat'));
@@ -211,22 +198,13 @@ if (result && state.owner) {
   await fs.rm(path.join(STATE, 'maj-resultat'), { force: true });
 }
 
-// Daily alert, only when something is wrong, at most once a day.
+// Hourly check, three levels (alerts.mjs): only incidents and decisions are sent, each once per change.
 setInterval(async () => {
   const owner = core.ownerId; if (!owner) return;
-  const h = await readJson(path.join(STATE, 'sante.json'), null);
-  const today = new Date().toISOString().slice(0, 10);
-  const b = await readJson(path.join(STATE, 'sauvegarde.json'), null);
-  const stale = !h || Date.now() - Date.parse(h.date) > 36 * 3600e3;
-  const badBackup = b && (!b.distant || Date.now() - Date.parse(b.date) > 36 * 3600e3);
-  if (!state.ficheRappel || Date.now() - state.ficheRappel > 182 * 86400e3) {
-    state.ficheRappel = Date.now(); await saveState();
-    await tg.send(owner, '🧾 Rappel semestriel : vérifie ta fiche de secours papier (/secours pour la liste). Mets-y la date du jour.');
-  }
-  if ((stale || !h.ok || badBackup) && state.lastAlert !== today) {
-    state.lastAlert = today; await saveState();
-    await tg.send(owner, stale ? '⚠️ Le contrôle de santé du serveur n’a pas tourné depuis plus de 36 h.' : '⚠️ Serveur ou sauvegarde : quelque chose cloche. Tape /sante.');
-  }
+  const current = evaluate({ sante: await readJson(path.join(STATE, 'sante.json'), null), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json'), null), ficheRappel: state.ficheRappel });
+  if (queue.size >= 3) current.push({ cause: 'github', level: 'critique', text: `${queue.size} notes n’arrivent pas sur GitHub (jeton expiré ?). Elles sont gardées sur le serveur.` });
+  await alertTick({ current, state, send: (m) => tg.send(owner, m), log });
+  await saveState();
 }, 3600e3);
 
 let offset = state.offset || 0;

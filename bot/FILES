@@ -4,3 +4,8 @@ classify.mjs
 telegram.mjs
 sync.mjs
 secrets.mjs
+guard.mjs
+queue.mjs
+alerts.mjs
+projets.mjs
+secours.mjs

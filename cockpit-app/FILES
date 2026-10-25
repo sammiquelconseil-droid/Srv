@@ -4,3 +4,4 @@ app/auth.mjs
 app/cbor.mjs
 src/schedules.mjs
 src/patrimoine.mjs
+app/sauvegarde.mjs

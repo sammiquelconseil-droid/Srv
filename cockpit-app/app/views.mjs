@@ -34,7 +34,7 @@ function layout(title, current, body, { nonce, script, noNav } = {}) {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#2f5bd3"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Cockpit">
 <title>${esc(title)} · Cockpit</title><style>${CSS}</style></head><body>
-<header><b>Cockpit</b>${noNav ? '' : `<nav>${link('/', "Aujourd'hui")}${link('/patrimoine', 'Patrimoine')}${link('/mes-chiffres', 'Mes chiffres')}</nav><form method="post" action="/deconnexion" style="margin:0"><button type="submit" class="ghost">Verrouiller</button></form>`}</header><main>${body}</main>${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`;
+<header><b>Cockpit</b>${noNav ? '' : `<nav>${link('/', "Aujourd'hui")}${link('/patrimoine', 'Patrimoine')}${link('/mes-chiffres', 'Mes chiffres')}${link('/sauvegardes', 'Sauvegardes')}</nav><form method="post" action="/deconnexion" style="margin:0"><button type="submit" class="ghost">Verrouiller</button></form>`}</header><main>${body}</main>${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`;
 }
 
 export function todayPage({ now, sante, sauvegarde, notes, echeances, alertes }) {
@@ -133,6 +133,29 @@ export function accesPage({ nonce, hasKeys }) {
     <div class="f"><label for="label">Nom de l’appareil</label><input id="label" placeholder="ex. iPhone de Sam" maxlength="40"></div>
     <button type="button" id="btn-inscription">Enregistrer avec Face ID</button></section>
   </div>`, { nonce, script: ACCES_JS, noNav: true });
+}
+
+export function sauvegardesPage({ key, tested = false, token, message, backup }) {
+  const b = backup ? `Dernière sauvegarde : ${esc(new Date(backup.date).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }))} · copie hors du serveur : ${backup.distant ? 'oui (vérifiée)' : 'NON'}` : 'Pas encore de sauvegarde.';
+  const hidden = `<input type="hidden" name="jeton" value="${esc(token)}">`;
+  const keyCard = key ? `<section class="card"><h2>🔑 Ta clé de sauvegarde (à ranger maintenant)</h2>
+    <p>Sans elle, personne ne peut ouvrir tes sauvegardes, pas même toi. Elle ne s'affiche qu'ici, sur ton réseau privé, et jamais dans Telegram.</p>
+    <ol><li>Appuie longuement sur la clé et copie-la.</li><li>App Mots de passe → + → titre « Cockpit — clé de sauvegarde » → colle-la → Enregistrer.</li><li>Écris-la aussi sur ta fiche papier.</li><li>Teste-la dans « Tester ma clé » ci-dessous, en la collant depuis Mots de passe (pas depuis cet écran).</li><li>Quand le test est ✅, touche le bouton : la clé sera effacée du serveur.</li></ol>
+    <p><code style="word-break:break-all;font-size:15px;user-select:all;-webkit-user-select:all">${esc(key)}</code></p>
+    <form method="post" action="/sauvegardes/rangee">${hidden}<button type="submit"${tested ? '' : ' disabled title="Teste d’abord ta clé"'}>✅ Testée et rangée — effacer du serveur${tested ? '' : ' (après le test)'}</button></form></section>`
+    : `<section class="card"><h2>🔑 Clé de sauvegarde</h2><p>Aucune clé en attente sur le serveur : elle t'a déjà été remise (app Mots de passe, « Cockpit — clé de sauvegarde »). Pour en créer une nouvelle (seulement si l'ancienne est perdue) : <code>/nouvelle_cle</code> dans le bot.</p></section>`;
+  return layout('Sauvegardes', '/sauvegardes', `<h1>Sauvegardes et secrets</h1>
+  <p class="sub">${b}</p>
+  ${message ? `<div class="alert ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}</div>` : ''}
+  <div class="cards two" style="margin-top:12px">
+   ${keyCard}
+   <section class="card"><h2>🧪 Tester ma clé (une fois par mois)</h2>
+    <p class="note">Je l'utilise une seule fois pour ouvrir la dernière sauvegarde, puis je l'oublie. Elle n'est ni gardée ni écrite nulle part.</p>
+    <form method="post" action="/sauvegardes/test">${hidden}<div class="f"><label for="cle">Colle ta clé</label><input id="cle" name="cle" type="password" autocomplete="off" placeholder="AGE-SECRET-KEY-1…"></div><button type="submit">Tester</button></form></section>
+   <section class="card"><h2>🔐 Nouveau jeton GitHub (renouvellement)</h2>
+    <p class="note">Seulement quand Claude te le demande (le jeton actuel expire le 24/10/2027). Il est rangé sur le serveur, jamais affiché.</p>
+    <form method="post" action="/sauvegardes/github">${hidden}<div class="f"><label for="github">Colle le jeton</label><input id="github" name="github" type="password" autocomplete="off" placeholder="github_pat_…"></div><button type="submit">Enregistrer</button></form></section>
+  </div>`);
 }
 
 export function errorPage(msg) { return layout('Erreur', '', `<h1>Oups</h1><p>${esc(msg)}</p>`); }

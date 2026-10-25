@@ -10,7 +10,7 @@ export function createTelegram(token, fetchImpl = fetch) {
   return {
     call,
     getUpdates: (offset) => call('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'callback_query'] }),
-    send: (chat_id, text, extra) => call('sendMessage', { chat_id, text, ...extra }),
+    send: (chat_id, text, extra) => call('sendMessage', { chat_id, ...extra, text }), // text last: nothing in extra can replace a checked text
     answerCallback: (id) => call('answerCallbackQuery', { callback_query_id: id }),
     fileUrl: async (file_id) => { const f = await call('getFile', { file_id }); return `https://api.telegram.org/file/bot${token}/${f.file_path}`; },
   };
