@@ -33,7 +33,9 @@ export function createSync({ getToken, owner, fetchImpl = fetch, branchOf = () =
     return true;
   }
   // A refused write because main is protected (ruleset / branch protection), or a reception branch that vanished.
-  append.needsBranch = (e, repo) => /^GitHub PUT (403|422).*(rule|protect)/i.test(e.message) || (!!branchOf(repo) && /^GitHub (GET|PUT) 404/.test(e.message));
+  // GitHub answers 409 « Changes must be made through a pull request » (branch protection) or
+  // 403/422 « Repository rule violations found » (rulesets) when main refuses a direct write.
+  append.needsBranch = (e, repo) => /^GitHub PUT (403|409|422).*(rule|protect|pull request)/i.test(e.message) || (!!branchOf(repo) && /^GitHub (GET|PUT) 404/.test(e.message));
   // Create the reception branch from the default branch if it does not exist (same token, no extra right).
   async function ensureBranch(repo, name) {
     const token = await getToken(); if (!token) return false;
