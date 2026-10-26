@@ -205,7 +205,7 @@ if (result && state.owner) {
 setInterval(async () => {
   const owner = core.ownerId; if (!owner) return;
   const todayIso = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
-  const current = evaluate({ sante: await readJson(path.join(STATE, 'sante.json'), null), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json'), null), ficheRappel: state.ficheRappel, todayIso });
+  const current = evaluate({ sante: await readJson(path.join(STATE, 'sante.json'), null), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json'), null), ficheRappel: state.ficheRappel, todayIso, dossier: await readJson(path.join(STATE, 'data', 'situation.json'), null), prospects: await readJson(path.join(STATE, 'data', 'prospects.json'), null), coffre: await readJson(path.join(STATE, 'data', 'coffre.json'), null) });
   if (queue.size >= 3) current.push({ cause: 'github', level: 'critique', text: `${queue.size} notes n’arrivent pas sur GitHub (jeton expiré ?). Elles sont gardées sur le serveur.` });
   await alertTick({ current, state, send: (m) => tg.send(owner, m), log });
   await saveState();

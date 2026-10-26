@@ -1,4 +1,6 @@
 // Server-rendered pages. No script, no external resource: works on iPhone and desktop.
+import { ETAPES, trier, compter, aRelancer } from '../src/prospects.mjs';
+import { TYPES, filtrer, annee, compterPar, aFaire, libelle } from '../src/coffre.mjs';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const eur = (c) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: c % 100 ? 2 : 0 }).format(c / 100);
 const date = (iso) => iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Paris' }) : '—';
@@ -56,15 +58,20 @@ select,textarea{font:inherit;font-size:16px;padding:10px 12px;border:1px solid v
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}h3{font-size:14px;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 4px}
 a.btn{display:inline-block;font-weight:700;background:var(--accentbg);color:var(--accent);border-radius:14px;padding:10px 16px;min-height:44px;line-height:24px;text-decoration:none;margin-top:8px}
 button.danger{background:var(--badbg);color:var(--bad)}
+footer.foot{display:none}@media(max-width:899px){nav a.more{display:none}footer.foot{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:22px}footer.foot a{color:var(--ink2);font-weight:600;text-decoration:none;padding:10px 14px;border-radius:12px;background:var(--card);min-height:44px}}
+.chips.f a{background:var(--card);color:var(--ink2);border:1px solid var(--line);text-decoration:none;border-radius:999px;padding:8px 12px;font-size:14px;font-weight:600;white-space:nowrap;min-height:40px;display:inline-flex;align-items:center}.chips.f a[aria-current]{background:var(--accent);color:#fff;border-color:var(--accent)}
+li.doc{display:flex;gap:12px;align-items:flex-start}li.doc .ic{font-size:24px;line-height:1.2}li.doc a.t{font-weight:700;color:var(--ink);text-decoration:none;font-size:16px}li.doc .m{color:var(--ink2);font-size:13.5px;margin-top:2px}li.doc details{margin-top:6px}li.doc summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600}
 `;
 
-const NAV = [['/', '🏠', "Aujourd'hui"], ['/patrimoine', '🏡', 'Patrimoine'], ['/dossier', '🗂', 'Dossier'], ['/mes-chiffres', '💶', 'Mes chiffres'], ['/sauvegardes', '🔐', 'Sauvegardes']];
+// Five tabs on the phone (bottom bar); « more » ones are in the header on a computer and in the footer on a phone.
+const NAV = [['/', '🏠', "Aujourd'hui"], ['/patrimoine', '🏡', 'Patrimoine'], ['/coffre', '🗄', 'Coffre'], ['/dossier', '🗂', 'Dossier'], ['/prospects', '🎯', 'Prospects'], ['/mes-chiffres', '💶', 'Mes chiffres', 'more'], ['/sauvegardes', '🔐', 'Sauvegardes', 'more']];
 function layout(title, current, body, { nonce, script, noNav, ok = true } = {}) {
-  const link = ([href, icon, label]) => `<a href="${href}"${current === href ? ' aria-current="page"' : ''}><em aria-hidden="true">${icon}</em>${label}</a>`;
+  const link = ([href, icon, label, more]) => `<a href="${href}"${more ? ' class="more"' : ''}${current === href ? ' aria-current="page"' : ''}><em aria-hidden="true">${icon}</em>${label}</a>`;
+  const foot = noNav ? '' : `<footer class="foot">${NAV.filter((n) => n[3]).map(([h, i, l]) => `<a href="${h}">${i} ${l}</a>`).join('')}</footer>`;
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#2457e6"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Cockpit">
 <title>${esc(title)} · Cockpit</title><style>${CSS}</style></head><body>
-<header><span class="brand"><i style="background:var(--${ok ? 'ok' : 'warn'})"></i>Mon Cockpit</span>${noNav ? '' : `<nav>${NAV.map(link).join('')}</nav><form method="post" action="/deconnexion" style="margin:0"><button type="submit" class="ghost">Verrouiller</button></form>`}</header><main>${body}</main>${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`;
+<header><span class="brand"><i style="background:var(--${ok ? 'ok' : 'warn'})"></i>Mon Cockpit</span>${noNav ? '' : `<nav>${NAV.map(link).join('')}</nav><form method="post" action="/deconnexion" style="margin:0"><button type="submit" class="ghost">Verrouiller</button></form>`}</header><main>${body}${foot}</main>${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`;
 }
 
 const empty = (icon, text) => `<div class="empty"><b>${icon}</b><span>${text}</span></div>`;
@@ -86,7 +93,7 @@ const taskHtml = (line) => {
   return `<li class="task">${t.quand ? `<span class="when ${t.urgence}">${esc(t.quand)}</span>` : ''}<span class="t">${esc(t.geste)}</span>${detail}${t.pourquoi ? `<p class="w">Pourquoi toi · ${esc(t.pourquoi)}</p>` : ''}</li>`;
 };
 
-export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [], alertes, attentes = null }) {
+export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [], alertes, attentes = null, budget = null }) {
   const d = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
   const h = Number(now.toLocaleString('fr-FR', { hour: 'numeric', hour12: false, timeZone: 'Europe/Paris' }).replace(/\D/g, ''));
   const hello = h < 5 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
@@ -113,9 +120,16 @@ export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [
   const fis = fiscal.length ? `<ul class="plain">${fiscal.map((e) => `<li class="dl">${dl(e.date)}<div><b>${esc(e.libelle)}</b> ${badge(e.statut)}<div class="note" style="margin-top:4px">${esc(e.note)}</div></div></li>`).join('')}</ul>` : empty('🧾', 'Aucune échéance d’impôt ou d’URSSAF dans les 45 prochains jours.');
   const nts = notes.length ? `<ul class="plain">${notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : empty('💬', 'Aucune note. Envoie-en une à ton bot Telegram.');
   const al = alertes.map((a) => `<div class="alert warn">⚠️ ${esc(a)}</div>`).join('');
+  const bud = budget ? `<div class="row"><span>Entrées (salaire + loyers)</span><span>${budget.complet ? eur(budget.entrees) : `${eur(budget.entrees)} + salaire ?`}</span></div>
+    <div class="row"><span>Mensualités des biens</span><span>− ${eur(budget.mensualites)}</span></div>
+    <div class="row"><span>Abonnements</span><span>− ${eur(budget.abonnements)}</span></div>
+    <div class="row"><span>Dépenses fixes</span><span>− ${eur(budget.charges)}</span></div>
+    <div class="row"><span><b>Il reste (estimé)</b></span><span><b>${budget.complet ? eur(budget.solde) : '—'}</b></span></div>
+    <p class="note">${budget.complet ? 'Estimation à partir de ton dossier, pas ton compte en banque : sans impôts, cotisations ni dépenses imprévues.' : 'Saisis ton salaire dans « Mes chiffres » pour voir ce qu’il reste.'} Liste à compléter dans « Dossier ».</p>` : '';
   return layout("Aujourd'hui", '/', `<section class="hero"><h1>${hello} Sam 👋</h1><p class="sub">${esc(d)}</p><div class="chips">${chips}</div></section>${al}
   <div class="cards">
    <section class="card wide"><h2>🧑 À faire par toi${pill(total)}</h2>${att}</section>
+   ${bud ? `<section class="card"><h2>💶 Budget du mois</h2>${bud}</section>` : ''}
    <section class="card"><h2>🗓 Échéances à venir <span class="note" style="margin:0;font-weight:500">30 jours</span></h2>${ech}</section>
    <section class="card"><h2>🧾 Impôts et URSSAF (45 jours)</h2>${fis}<p class="note">Le bot te prévient 30 jours, 7 jours et la veille. Une échéance n’est jamais comptée comme payée sans ta confirmation.</p></section>
    <section class="card"><h2>💬 Dernières notes</h2>${nts}</section>
@@ -124,7 +138,7 @@ export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [
   </div>`, { ok: !sante || sante.ok });
 }
 
-export function patrimoinePage({ summary, asOf, vide = false }) {
+export function patrimoinePage({ summary, asOf, vide = false, papiers = {} }) {
   const t = summary.totals;
   const kpis = `<div class="kpis">
    <div class="kpi"><span>Reste à payer (théorique)</span><b>${eur(t.restantCents)}</b></div>
@@ -145,7 +159,7 @@ export function patrimoinePage({ summary, asOf, vide = false }) {
      <div class="row"><span>Échéances restantes</span><span>${bal.remaining} sur ${f.nombre}</span></div>
      <div class="row"><span>Prochaine</span><span>${esc(date(b.next))}</span></div>
      <div class="row"><span>Dernière</span><span>${esc(date(b.end))}</span></div>` : '<div class="row"><span>Crédit</span><span>aucun</span></div>'}
-     ${loyers}${hyp}${al}${f ? `<p class="note">Paiement : ${esc(f.paiement || '—')}.</p>` : ''}</section>`;
+     ${loyers}${hyp}${al}${f ? `<p class="note">Paiement : ${esc(f.paiement || '—')}.</p>` : ''}<a class="btn" href="/coffre?r=${encodeURIComponent('bien:' + b.id)}">📎 Ses papiers (${papiers['bien:' + b.id] || 0})</a></section>`;
   }).join('');
   const body = vide ? `<section class="card">${empty('🗂', 'Aucun bien pour l’instant.')}<a class="btn" href="/dossier">Remplir mon dossier</a></section>` : `${kpis}<div class="cards">${cards}</div><p style="margin-top:14px"><a class="btn" href="/dossier">✏️ Modifier mon dossier</a></p>`;
   return layout('Patrimoine', '/patrimoine', `<h1>Patrimoine</h1><p class="sub">Calculé au ${esc(date(asOf))}, en supposant toutes les échéances payées jusqu'ici. La valeur actuelle des biens n'est pas encore estimée.</p>${body}`);
@@ -260,15 +274,20 @@ function bienForm(k, p, b = {}) {
    <h3>Points de vigilance</h3>${k.area(`${p}.alertes`, 'Une alerte par ligne, 5 au plus (affichées sur Aujourd’hui)', (b.alertes || []).join('\n'), 'ex. Relire la clause de l’acte avant toute location')}`;
 }
 
-export function dossierPage({ data, token, message, vide = false, sent = null }) {
+export function dossierPage({ data, token, message, vide = false, sent = null, dernieres = {} }) {
   const k = dossierKit(sent);
   const jeton = `<input type="hidden" name="jeton" value="${esc(token)}">`;
-  const biens = data.biens.map((b, i) => `<section class="card"><h2>🏡 ${esc(b.nom)}</h2>${bienForm(k, `b${i}`, b)}</section>`).join('');
+  const biens = data.biens.map((b, i) => `<section class="card"><h2>🏡 ${esc(b.nom)}</h2>${dernieres[b.id] ? `<p class="note" style="margin-top:-6px">📅 Dernière échéance : <b>${esc(date(dernieres[b.id]))}</b> (calculée à partir du crédit)</p>` : ''}${bienForm(k, `b${i}`, b)}</section>`).join('');
   const newOpen = vide || (sent && Object.keys(sent).some((n) => n.startsWith('new.') && !n.endsWith('.statut') && String(sent[n]).trim()));
   const rfr = (data.revenus && data.revenus.revenuFiscalReferenceCents) || {};
   const abos = data.abonnements || [];
-  const abosHtml = abos.map((a, i) => `<div class="grid2">${k.inp(`a${i}.nom`, 'Nom (vide = supprimé)', a.nom, { max: 40 })}${k.money(`a${i}.montant`, 'Prix par mois (€)', a.montantCents)}</div>${k.hidden(`a${i}.statut`, a.statut || 'estime')}`).join('')
-    + `<div class="grid2">${k.inp('anew.nom', 'Ajouter un abonnement', '', { max: 40, ph: 'nom' })}${k.money('anew.montant', 'Prix par mois (€)', null)}</div>${k.hidden('anew.statut', 'estime')}`;
+  const renewA = (p, it = {}) => `<div class="grid2">${k.inp(`${p}.renouv`, 'Se renouvelle le (facultatif)', it.renouvellement, { type: 'date' })}${k.inp(`${p}.preavis`, 'Préavis pour résilier (jours)', it.preavisJours, { mode: 'numeric', ph: 'ex. 30', max: 3 })}</div>`;
+  const abosHtml = abos.map((a, i) => `<div class="grid2">${k.inp(`a${i}.nom`, 'Nom (vide = supprimé)', a.nom, { max: 40 })}${k.money(`a${i}.montant`, 'Prix par mois (€)', a.montantCents)}</div>${renewA(`a${i}`, a)}${k.hidden(`a${i}.statut`, a.statut || 'estime')}`).join('<hr style="border:0;border-top:1px solid var(--line);margin:12px 0">')
+    + `<h3>Ajouter un abonnement</h3><div class="grid2">${k.inp('anew.nom', 'Nom', '', { max: 40, ph: 'ex. Netflix' })}${k.money('anew.montant', 'Prix par mois (€)', null)}</div>${renewA('anew')}${k.hidden('anew.statut', 'estime')}`;
+  const freqSel = (name, value) => { const f = sent && name in sent ? sent[name] : (value || 'mois'); return `<div class="f"><label for="${esc(name)}">Tous les…</label><select id="${esc(name)}" name="${esc(name)}"><option value="mois"${f === 'mois' ? ' selected' : ''}>par mois</option><option value="an"${f === 'an' ? ' selected' : ''}>par an</option></select></div>`; };
+  const renewHtml = (p, it = {}) => `<div class="grid2">${k.inp(`${p}.renouv`, 'Se renouvelle le (facultatif)', it.renouvellement, { type: 'date' })}${k.inp(`${p}.preavis`, 'Préavis pour résilier (jours)', it.preavisJours, { mode: 'numeric', ph: 'ex. 30', max: 3 })}</div>`;
+  const chargesHtml = (data.charges || []).map((c, i) => `<div class="grid2">${k.inp(`c${i}.nom`, 'Nom (vide = supprimé)', c.nom, { max: 40 })}${k.money(`c${i}.montant`, 'Montant (€)', c.montantCents)}</div>${freqSel(`c${i}.freq`, c.frequence)}${renewHtml(`c${i}`, c)}`).join('<hr style="border:0;border-top:1px solid var(--line);margin:12px 0">')
+    + `<h3>Ajouter une dépense</h3><div class="grid2">${k.inp('cnew.nom', 'Nom', '', { max: 40, ph: 'ex. Assurance auto' })}${k.money('cnew.montant', 'Montant (€)', null)}</div>${freqSel('cnew.freq', 'mois')}${renewHtml('cnew')}`;
   const retirer = data.biens.length ? `<section class="card"><h2>🗑 Retirer un bien</h2><p class="note" style="margin-top:0">Seulement si tu l’as vendu ou si c’est une erreur. Enregistre d’abord tes autres changements : ce bouton recharge la page.</p>${data.biens.map((b) => `<form method="post" action="/dossier/retirer" style="margin-top:10px">${jeton}<input type="hidden" name="id" value="${esc(b.id)}"><label style="display:flex;gap:8px;align-items:center;font-size:15px"><input type="checkbox" name="sur" value="1" required style="width:22px;height:22px;min-height:0">Oui, retirer « ${esc(b.nom)} »${b.type ? ` (${esc(b.type)})` : ''}</label><button type="submit" class="danger">Retirer</button></form>`).join('')}</section>` : '';
   const save = '<button type="submit">💾 Enregistrer tout le dossier</button>';
   return layout('Dossier', '/dossier', `<h1>Mon dossier</h1>
@@ -281,7 +300,146 @@ export function dossierPage({ data, token, message, vide = false, sent = null })
    <section class="card"><details${newOpen ? ' open' : ''}><summary style="cursor:pointer;font-weight:700;font-size:17px;list-style:none">➕ Ajouter un bien</summary><div style="margin-top:10px">${bienForm(k, 'new', {})}</div></details></section>
    <section class="card"><h2>💼 Revenus</h2><div class="grid2">${k.money('rfr', 'Revenu fiscal de référence (€)', rfr.valeur)}${k.sel('rfrStatut', 'Ce chiffre est…', rfr.statut === 'a_saisir' ? 'declare' : rfr.statut)}</div><p class="note">En haut de ton dernier avis d’imposition. Il sert au calcul du versement libératoire. Ton salaire se saisit dans « Mes chiffres ».</p></section>
    <section class="card"><h2>🔁 Abonnements</h2>${abosHtml}<p class="note">Ici, la liste et le prix prévu ; ce que tu paies vraiment se saisit dans « Mes chiffres ».</p></section>
+   <section class="card"><h2>🧾 Dépenses fixes</h2>${chargesHtml}<p class="note">Assurances, électricité, téléphone, internet, salle de sport… Ce qui se paie par an (taxe, assurance) : choisis « par an », le Cockpit le divise par 12. Avec une date de renouvellement, le bot te prévient 30 et 7 jours avant la date limite pour résilier.</p></section>
+   <section class="card wide"><details${sent && String(sent.coller || '').trim() ? ' open' : ''}><summary style="cursor:pointer;font-weight:700;font-size:17px;list-style:none">📋 Coller une liste (abonnements et dépenses)</summary><div style="margin-top:10px">${k.area('coller', 'Une ligne par élément : Abonnement ou Dépense ; nom ; montant ; mois ou an ; date de renouvellement (jj/mm/aaaa, facultatif) ; préavis en jours (facultatif)', '', 'Abonnement ; Netflix ; 13,49 ; mois\nDépense ; Assurance auto ; 540 ; an ; 01/03/2027 ; 60')}<p class="note">Un nom déjà dans la liste est mis à jour, pas doublé. Pratique quand Claude te prépare la liste : tu la colles ici, puis « Enregistrer tout le dossier ».</p></div></details></section>
    <div class="wide" style="text-align:right">${save}</div>
   </form>
   <div class="cards" style="margin-top:14px">${retirer}</div>`);
+}
+
+// Ready-made messages (no price: the prices live in Les Zaff OFFRES.md, the only source). Selected by a long press.
+const MSG_PREMIER = `Salut ! Moi c'est Sam, je monte des boutiques en ligne clé en main pour les vendeurs de vêtements.
+
+Un seul lien à mettre partout (Insta, Snap, WhatsApp). Ton client choisit, paie par carte, et le reste se fait tout seul : confirmation, suivi du colis, relances, tes chiffres. Tu gères tout depuis Telegram, avec des boutons.
+
+Exemple en vrai : leszaff.fr
+
+Offre de lancement : création offerte, 3 premiers mois moins chers, aucune commission sur tes ventes.
+
+On en parle 10 minutes ? Si ça ne t'intéresse pas, réponds juste « non merci » et je ne t'écris plus.`;
+const MSG_RELANCE = `Re ! Une seule relance de ma part pour la boutique en ligne : je peux te montrer en 5 minutes, sur mon téléphone, comment ça marche avec tes propres articles. Ça te dit ? Sinon pas de souci, je ne t'écris plus.`;
+const MSG_APRES_DEMO = `Merci pour ton temps ! Le récap : formule [nom], création offerte, [prix] par mois les 3 premiers mois, puis [prix]. Payé d'avance, sans commission sur tes ventes. Si c'est bon pour toi, je t'envoie les conditions à signer et on lance ta boutique.`;
+
+export function prospectsPage({ list = [], token, message, sent = null, todayIso }) {
+  const k = dossierKit(sent);
+  const sorted = trier(list);
+  const c = compter(list);
+  const due = aRelancer(list, todayIso).length;
+  const enCours = list.length - c.signe - c.non;
+  const etapeSel = (name, value) => { const v = sent && name in sent ? sent[name] : value; return `<div class="f"><label for="${esc(name)}">Où on en est</label><select id="${esc(name)}" name="${esc(name)}">${ETAPES.map(([e, l]) => `<option value="${e}"${v === e ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>`; };
+  const label = Object.fromEntries(ETAPES);
+  const row = (p, x = {}) => {
+    const late = x.relance && x.relance <= todayIso && !['signe', 'non'].includes(x.etape);
+    const head = x.nom ? `<h3 style="margin-top:0">${esc(x.nom)} <span class="badge ${x.etape === 'signe' ? 'ok' : x.etape === 'non' ? 'muted' : late ? 'warn' : 'info'}">${late ? 'À relancer' : esc(label[x.etape] || '')}</span></h3>` : '';
+    return `${head}${x.id ? k.hidden(`${p}.id`, x.id) : ''}<div class="grid2">${k.inp(`${p}.nom`, x.nom ? 'Pseudo (vide = effacé)' : 'Pseudo', x.nom, { max: 40, ph: 'ex. @streetwear.lyon' })}${k.inp(`${p}.ou`, 'Où tu l’as trouvé', x.ou, { max: 40, ph: 'ex. Insta, ami de Karim' })}</div>
+     <div class="grid2">${etapeSel(`${p}.etape`, x.etape || 'a_contacter')}${k.inp(`${p}.relance`, 'Relancer le', x.relance, { type: 'date' })}</div>
+     ${k.inp(`${p}.note`, 'Note (facultatif)', x.note, { max: 200, ph: 'ex. vend des sneakers, 2 000 abonnés' })}`;
+  };
+  const rows = sorted.map((x, i) => `<section class="card">${row(`p${i}`, x)}</section>`).join('');
+  const copy = (t) => `<textarea readonly style="min-height:150px;font-size:15px">${esc(t)}</textarea>`;
+  const save = '<button type="submit">💾 Enregistrer</button>';
+  return layout('Prospects', '/prospects', `<section class="hero"><h1>🎯 Prospects</h1>
+   <p class="sub">Les vendeurs à qui proposer une boutique. Gardé sur ton serveur seulement : rien sur GitHub, aucun pseudo dans Telegram.</p>
+   <div class="chips"><span class="chip">${due ? `⏰ ${due} à relancer aujourd’hui` : '✅ Personne à relancer'}</span><span class="chip">💬 ${enCours} en cours</span><span class="chip">🎉 ${c.signe} client${c.signe > 1 ? 's' : ''}</span></div></section>
+  ${message ? `<div class="alert ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}${message.ok ? '' : ' Ce que tu as tapé est encore là : corrige la case et réenregistre.'}</div>` : ''}
+  <form method="post" action="/prospects" class="cards" style="margin-top:12px"><input type="hidden" name="jeton" value="${esc(token)}">
+   <section class="card wide"><h2>➕ Ajouter un prospect</h2>${row('pnew')}${save}
+    <p class="note">Quand tu choisis une étape sans date, le Cockpit met la relance tout seul (message envoyé : 4 jours ; relancé : 7 jours ; démo : 2 jours ; offre : 3 jours). Le bot te dit chaque matin combien de personnes relancer, sans leur nom.</p></section>
+   ${rows}
+   ${list.length ? `<div class="wide" style="text-align:right">${save}</div>` : ''}
+  </form>
+  <div class="cards two" style="margin-top:14px">
+   <section class="card"><h2>⚖️ Qui contacter, et comment</h2><ul class="plain">
+    <li>✅ Les gens que tu connais, que tu as rencontrés, ou qui t’ont posé la question.</li>
+    <li>✅ Les boutiques et vendeurs <b>professionnels</b> : un message qui parle de leur activité de vendeur, avec ton prénom et « réponds non merci ».</li>
+    <li>⚠️ Un particulier qui revend et que tu ne connais pas (trouvé sur Insta, Vinted…) : <b>ne lui écris pas en premier</b>. La CNIL (l’autorité des données personnelles) demande son accord avant un message commercial quand le contact vient d’internet — point à confirmer. Fais-le venir à toi : une story « je monte des boutiques », ou une présentation par quelqu’un qui le connaît.</li>
+    <li>1 message, 1 relance au maximum. « Non », ou rien après la relance : passe-le en « Pas intéressé / stop ».</li>
+    <li>Jamais de message envoyé à plusieurs d’un coup, jamais de liste achetée.</li>
+    <li>Ici, un pseudo suffit : pas de nom complet, pas d’adresse. S’il demande à être effacé : vide son pseudo, puis « Enregistrer ».</li></ul></section>
+   <section class="card"><h2>💬 Messages prêts</h2><p class="note" style="margin-top:0">Touche le texte, puis « Tout sélectionner » et « Copier ».</p>
+    <h3>1 · Premier message</h3>${copy(MSG_PREMIER)}
+    <h3>2 · La relance (une seule)</h3>${copy(MSG_RELANCE)}
+    <h3>3 · Après la démo</h3>${copy(MSG_APRES_DEMO)}
+    <p class="note">Remplace les [crochets] par les prix de la formule choisie. La démo en 5 minutes : leszaff.fr, un article, « Commander sur Telegram », puis ton espace vendeur.</p></section>
+  </div>`);
+}
+
+// The safe: file a paper (photo or PDF) in two gestures, find it again by house or project, sorted by year.
+export function coffrePage({ index = [], places = [], filtre = {}, token, message, sent = null, distant = null, cle = true, todayIso, nonce = null, script = null, verif = '' }) {
+  const counts = compterPar(index);
+  const docs = filtrer(index, filtre).filter((d) => !filtre.afaire || d.afaire === 'a_faire');
+  const todo = aFaire(index).length;
+  const AF = [['', '·', 'Rien à faire'], ['a_faire', '📌', 'À faire (devis à signer, courrier à répondre…)'], ['fait', '✅', 'Fait']];
+  // p = prefix of the element ids only (one form per paper on the page); names stay the same. `back` = what was typed, re-shown after a refusal.
+  const metaFields = (p, d = {}, back = null) => {
+    const v = (name, stored) => (back && name in back ? back[name] : stored ?? '');
+    const inp = (name, label, value, { type = 'text', max, ph = '' } = {}) => `<div class="f"><label for="${p}${name}">${label}</label><input id="${p}${name}" name="${name}" type="${type}" value="${esc(v(name, value))}"${max ? ` maxlength="${max}"` : ''} placeholder="${esc(ph)}" autocomplete="off"></div>`;
+    const sel = (name, label, list, value) => { const val = v(name, value); return `<div class="f"><label for="${p}${name}">${label}</label><select id="${p}${name}" name="${name}">${list.map(([key, ic, l]) => `<option value="${esc(key)}"${val === key ? ' selected' : ''}>${ic} ${esc(l)}</option>`).join('')}</select></div>`; };
+    return `${inp('titre', 'Titre', d.titre, { max: 80, ph: 'ex. Bail de la maison, devis toiture' })}
+    <div class="grid2">${sel('rattache', 'Rangé dans', places, d.rattache || filtre.r || 'perso')}${sel('type', 'Type', TYPES, d.type || 'facture')}</div>
+    <div class="grid2">${inp('date', 'Date du papier', d.date, { type: 'date' })}${inp('echeance', 'Date limite (facultatif)', d.echeance, { type: 'date' })}</div>
+    ${sel('afaire', 'À faire ?', AF, d.afaire || '')}${inp('note', 'Note (facultatif)', d.note, { max: 200 })}`;
+  };
+  const tok = `<input type="hidden" name="jeton" value="${esc(token)}">`;
+  const typeOf = Object.fromEntries(TYPES.map(([key, ic, l]) => [key, [ic, l]]));
+  const fmt = (iso) => (iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/Paris' }) : '');
+  const soon = (iso) => iso && (Date.parse(iso) - Date.parse(todayIso)) / 864e5 <= 30;
+  const item = (d) => {
+    const [ic, tl] = typeOf[d.type] || ['📄', 'Autre'];
+    const badges = `${d.afaire === 'a_faire' ? '<span class="badge warn">📌 À faire</span>' : ''}${d.echeance && d.afaire !== 'fait' ? `<span class="badge ${soon(d.echeance) ? 'bad' : 'info'}">⏰ ${esc(fmt(d.echeance))}</span>` : ''}`;
+    return `<li class="doc"><span class="ic" aria-hidden="true">${ic}</span><div style="flex:1;min-width:0"><a class="t" href="/coffre/voir/${esc(d.id)}">${d.e2e ? '🔒 ' : ''}${esc(d.titre)}</a>${badges}
+      <div class="m">${esc(tl)}${d.date ? ` · ${esc(fmt(d.date))}` : ''} · ${esc(libelle(places, d.rattache))}${d.note ? ` · ${esc(d.note)}` : ''}</div>
+      <details><summary>Modifier</summary><form method="post" action="/coffre/modifier">${tok}<input type="hidden" name="id" value="${esc(d.id)}">${metaFields(`e${d.id}-`, d)}<button type="submit">Enregistrer</button></form>
+       <form method="post" action="/coffre/modifier" style="margin-top:12px">${tok}<input type="hidden" name="id" value="${esc(d.id)}"><input type="hidden" name="supprimer" value="1"><label style="display:flex;gap:8px;align-items:center;font-size:15px"><input type="checkbox" name="sur" value="1" required style="width:22px;height:22px;min-height:0">Oui, le retirer du coffre</label><button type="submit" class="danger">Retirer</button></form></details></div></li>`;
+  };
+  const years = [...new Set(docs.map(annee))];
+  const list = docs.length ? years.map((y) => `<h3>${esc(y)}</h3><ul class="plain">${docs.filter((d) => annee(d) === y).map(item).join('')}</ul>`).join('')
+    : empty('🗄', filtre.r || filtre.afaire ? 'Aucun papier ici pour l’instant.' : 'Ton coffre est vide. Range ton premier papier ci-dessus.');
+  const chip = (href, label, on) => `<a href="${href}"${on ? ' aria-current="page"' : ''}>${label}</a>`;
+  const chips = [chip('/coffre', `Tous (${index.length})`, !filtre.r && !filtre.afaire), ...(todo ? [chip('/coffre?afaire=1', `📌 À faire (${todo})`, !!filtre.afaire)] : []),
+    ...places.filter(([key]) => counts[key] || key === filtre.r).map(([key, ic, l]) => chip(`/coffre?r=${encodeURIComponent(key)}`, `${ic} ${esc(l)} (${counts[key] || 0})`, filtre.r === key))].join('');
+  const here = filtre.r ? libelle(places, filtre.r) : null;
+  const copies = distant && index.length ? `<span class="chip">☁️ ${Math.min(distant, index.length)}/${index.length} copiés hors du serveur</span>` : '';
+  return layout('Coffre', '/coffre', `<section class="hero"><h1>🗄 Mon coffre</h1>
+   <p class="sub">Tes papiers, chiffrés sur ton serveur. Ils s’ouvrent seulement ici, après Face ID. Rien ne va sur GitHub en clair, rien dans Telegram, rien chez une IA.</p>
+   <div class="chips"><span class="chip">📄 ${index.length} papier${index.length > 1 ? 's' : ''}</span>${todo ? `<span class="chip">📌 ${todo} à faire</span>` : ''}${copies}</div></section>
+  ${cle ? '' : '<div class="alert warn">Le coffre s’ouvre après la prochaine mise à jour du serveur (/maj dans le bot). Tu pourras alors ranger tes papiers.</div>'}
+  ${message ? `<div class="alert ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}</div>` : ''}
+  <div class="cards" style="margin-top:12px">
+   <section class="card wide"><details${!index.length || (message && !message.ok && sent) ? ' open' : ''}><summary style="cursor:pointer;font-weight:700;font-size:17px;list-style:none">➕ Ranger un papier${here ? ` dans ${esc(here)}` : ''}</summary>
+    <form method="post" action="/coffre/ajouter" enctype="multipart/form-data" style="margin-top:10px" id="form-ranger" data-verif="${esc(verif)}">${tok}
+     <div class="f"><label for="fichier">Photo ou PDF (15 Mo maximum)</label><input id="fichier" name="fichier" type="file" accept="application/pdf,image/jpeg,image/png,image/heic" required></div>
+     <p class="note" style="margin-top:0">Pour un papier : « Choisir un fichier », puis <b>⋯</b> en haut à droite, puis <b>Scanner des documents</b>. L’iPhone redresse la page tout seul.</p>
+     ${metaFields('n-', {}, sent)}
+     <label style="display:flex;gap:10px;align-items:flex-start;font-size:15px;margin:12px 0 4px"><input type="checkbox" id="n-sensible" name="sensible" value="1" style="width:22px;height:22px;min-height:0;flex:none;margin-top:2px"><span><b>🔒 Très sensible</b> (identité, RIB, santé) : chiffré sur ton iPhone avec ton mot de passe du coffre, avant l’envoi. Le serveur ne peut pas le lire.</span></label>
+     <div id="pw-wrap" hidden><div class="grid2"><div class="f"><label for="pw1">Mot de passe du coffre</label><input id="pw1" name="pw1" type="password" autocomplete="off" minlength="8"></div>${verif ? '' : '<div class="f"><label for="pw2">Retape-le (première fois)</label><input id="pw2" name="pw2" type="password" autocomplete="off"></div>'}</div>
+      <p class="note" style="margin-top:0">${verif ? 'Le même mot de passe que pour tes autres papiers « très sensibles ».' : 'Choisis-le maintenant, une fois pour toutes, et écris-le sur ta fiche de secours. Perdu = ces papiers sont perdus, même pour Claude.'}</p></div>
+     <div id="pw-msg" class="alert" hidden></div>
+     <button type="submit">🔐 Ranger dans le coffre</button></form></details></section>
+   <section class="card wide"><div class="chips f" style="margin-bottom:10px">${chips}</div>${list}</section>
+   <section class="card wide"><h2>💡 Bon à savoir</h2><ul class="plain">
+    <li>Pièce d’identité, RIB, papiers de santé : coche <b>🔒 Très sensible</b>. Le papier est alors chiffré sur ton iPhone avec ton mot de passe du coffre, que le serveur ne reçoit jamais : même quelqu’un qui prendrait le serveur ou une sauvegarde ne pourrait pas le lire. C’est le même principe que la protection avancée d’iCloud.</li>
+    <li>Ce mot de passe du coffre : 8 caractères au moins, écrit sur ta fiche de secours. Il n’est stocké nulle part. Perdu = les papiers « très sensibles » sont perdus pour de bon.</li>
+    <li>Factures et papiers de ta micro-entreprise : garde-les 10 ans (règle des papiers de comptabilité).</li>
+    <li>Une date limite (fin de contrat, devis à signer, garantie) : le bot te prévient 30 jours avant, 7 jours avant et le jour même, sans dire de quel papier il s’agit.</li>
+    <li>Chaque papier est aussi copié hors du serveur, chiffré avec ta clé de sauvegarde (celle de ta fiche de secours). Un papier retiré ici disparaît du serveur ; sa copie chiffrée reste dans les sauvegardes.</li></ul></section>
+  </div>`, { nonce, script });
+}
+
+// One paper, shown inside the app (the app opened from the home screen has no back button: never a new tab).
+export function coffreViewPage({ doc, places, nonce = null, script = null }) {
+  const t = TYPES.find(([k]) => k === doc.type) || ['autre', '📄', 'Autre'];
+  const src = `/coffre/f/${esc(doc.id)}`;
+  if (doc.e2e) return layout(doc.titre, '/coffre', `<p style="margin:0 0 10px"><a class="btn" href="/coffre?r=${encodeURIComponent(doc.rattache)}">← Retour au coffre</a></p>
+  <section class="card"><h2>🔒 ${esc(doc.titre)}</h2><p class="sub" style="margin-top:-6px">${esc(t[2])} · ${esc(libelle(places, doc.rattache))}${doc.date ? ` · ${esc(date(doc.date))}` : ''} · chiffré sur ton iPhone</p>
+   <form id="form-ouvrir" data-src="${src}" data-mime="${esc(doc.mime)}"><div class="f"><label for="pw">Mot de passe du coffre</label><input id="pw" name="pw" type="password" autocomplete="off" required></div><button type="submit">🔓 Ouvrir ici</button></form>
+   <div id="pw-msg" class="alert" hidden></div><div id="papier" hidden></div>
+   <p class="note">Le papier est déchiffré dans ton téléphone, le temps de le lire. Rien n’est envoyé ni gardé.</p></section>`, { nonce, script });
+  const view = doc.mime === 'application/pdf'
+    ? `<iframe src="${src}" title="${esc(doc.titre)}" style="width:100%;height:70vh;border:0;border-radius:12px;background:#fff"></iframe>
+       <p class="note">Le document ne s’affiche pas en entier ? Touche « Ouvrir en grand », puis glisse depuis le bord gauche de l’écran pour revenir.</p>`
+    : `<img src="${src}" alt="${esc(doc.titre)}" style="max-width:100%;border-radius:12px;display:block">`;
+  return layout(doc.titre, '/coffre', `<p style="margin:0 0 10px"><a class="btn" href="/coffre?r=${encodeURIComponent(doc.rattache)}">← Retour au coffre</a></p>
+  <section class="card"><h2>${t[1]} ${esc(doc.titre)}</h2><p class="sub" style="margin-top:-6px">${esc(t[2])} · ${esc(libelle(places, doc.rattache))}${doc.date ? ` · ${esc(date(doc.date))}` : ''}</p>
+   ${view}<p><a class="btn" href="${src}">🔍 Ouvrir en grand</a></p></section>`);
 }

@@ -7,3 +7,8 @@ src/patrimoine.mjs
 app/sauvegarde.mjs
 src/echeancier.mjs
 app/dossier.mjs
+src/budget.mjs
+src/prospects.mjs
+app/coffre.mjs
+src/coffre.mjs
+app/coffreclient.mjs

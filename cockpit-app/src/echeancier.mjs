@@ -30,11 +30,6 @@ export const RULES = [
     source: 'https://www.economie.gouv.fr/particuliers/impots-et-fiscalite/gerer-mon-impot-sur-le-revenu/impot-sur-le-revenu-le-calendrier-de-la-declaration-en-2026', verifieLe: '2026-10-25', statut: 'verifie',
   },
   {
-    id: 'taxe-fonciere', libelle: 'Taxe foncière (3 biens)', mois: 10, jour: 15, anneeVerifiee: 2026,
-    note: '15 octobre par chèque ou virement (moins de 300 €), 20 octobre minuit en ligne ; prélèvement le 26 octobre. Avis en septembre sur impots.gouv.fr.',
-    source: 'https://presse.economie.gouv.fr/taxes-foncieres-2026-les-dates-a-retenir-pour-le-paiement/', verifieLe: '2026-10-25', statut: 'verifie',
-  },
-  {
     id: 'facture-electronique', libelle: 'Facturation électronique : tes factures aux entreprises passent par une plateforme agréée', date: '2027-09-01',
     note: 'Depuis le 1er septembre 2026, tu dois déjà pouvoir RECEVOIR des factures électroniques : choisir une plateforme agréée (liste officielle sur impots.gouv.fr ; des offres gratuites existent, à vérifier). À partir du 1er septembre 2027 : émission obligatoire et transmission des données de ventes aux particuliers. Aucun abonnement sans ton accord.',
     source: 'https://www.economie.gouv.fr/entreprises/gerer-sa-micro-entreprise/micro-entrepreneur-auto-entrepreneur-quelles-sont-vos-obligations', verifieLe: '2026-10-25', statut: 'a_verifier',

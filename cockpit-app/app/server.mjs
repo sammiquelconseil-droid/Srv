@@ -4,8 +4,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { summarize, upcoming } from '../src/patrimoine.mjs';
 import { upcomingDeadlines } from '../src/echeancier.mjs';
+import { budget } from '../src/budget.mjs';
+import { parseProspectsForm } from '../src/prospects.mjs';
+import { rattachements, compterPar } from '../src/coffre.mjs';
+import { addDoc, editDoc, readDoc, readIndex, readKey, readVerifier, parseMultipart, MAX_FILE } from './coffre.mjs';
 import crypto from 'node:crypto';
-import { todayPage, patrimoinePage, chiffresPage, accesPage, errorPage, sauvegardesPage, dossierPage } from './views.mjs';
+import { todayPage, patrimoinePage, chiffresPage, accesPage, errorPage, sauvegardesPage, dossierPage, prospectsPage, coffrePage, coffreViewPage } from './views.mjs';
 import { emptyDossier, parseDossierForm, removeBien, writeDossier, readDossier, parseEuros } from './dossier.mjs';
 import { pendingKey, testBackup, storeGithubToken } from './sauvegarde.mjs';
 import { createAuth, createSessions, parseCookies } from './auth.mjs';
@@ -20,6 +24,14 @@ const DATA_DIR = path.dirname(PRIVE);
 const KEYS_FILE = path.join(DATA_DIR, 'passkeys.json');
 const SESS_FILE = path.join(DATA_DIR, 'sessions.json');
 const CODE_FILE = path.join(DATA_DIR, 'acces-code.json');
+// The safe: encrypted files in STATE/coffre, their list in data/coffre.json, the key outside the data folder (root, /maj).
+const COFFRE_DIR = process.env.COFFRE_DIR || path.join(STATE, 'coffre');
+const COFFRE_INDEX = path.join(DATA_DIR, 'coffre.json');
+const COFFRE_KEY = process.env.COFFRE_KEY || '/etc/cockpit/coffre.key';
+const COFFRE_VERIF = path.join(DATA_DIR, 'coffre-verif.json');
+// The script that seals « très sensible » papers in Safari, inlined in the Coffre pages with a nonce.
+const CLIENT_JS = fsSync.readFileSync(new URL('./coffreclient.mjs', import.meta.url), 'utf8');
+const PROSPECTS = process.env.PROSPECTS_FILE || path.join(DATA_DIR, 'prospects.json'); // niveau 3: server only, in the encrypted backups
 const KEY_FILE = path.join(STATE, 'cle-a-remettre'); // written by root (nouvelle clé), owned by cockpit, shown here until Sam confirms
 const KEY_TESTED = path.join(STATE, 'cle-testee'); // marker (no secret): the pending key opened the latest backup from a paste
 const BACKUPS = process.env.BACKUPS_DIR || '/var/backups/cockpit';
@@ -71,9 +83,12 @@ const SECURITY = {
   'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'cache-control': 'no-store',
 };
+// Coffre pages: the sealing script (nonce) may fetch from this site and show a decrypted paper from memory (blob:).
+const withScript = (nonce) => ({ ...SECURITY, 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; img-src 'self' blob:; frame-src blob:; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` });
 const withNonce = (nonce) => ({ ...SECURITY, 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` });
 const JSONH = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
 const json = (res, code, obj) => { res.writeHead(code, JSONH); res.end(JSON.stringify(obj)); };
+const readRaw = async (req, max) => { const parts = []; let n = 0; for await (const c of req) { n += c.length; if (n > max) throw new Error('trop gros'); parts.push(c); } return Buffer.concat(parts); };
 const readBody = async (req, max = 65536) => { let b = ''; for await (const c of req) { b += c; if (b.length > max) throw new Error('trop gros'); } return b; };
 const sameSite = (req) => { const o = req.headers.origin; if (!o || o === 'null') return true; try { return new URL(o).host === req.headers.host; } catch { return false; } };
 
@@ -96,10 +111,25 @@ export async function render(url, opts = {}) {
   if (url === '/') {
     const alertes = summary.biens.flatMap((b) => (b.alertes || []).map((a) => `${b.nom} : ${a}`));
     if (vide) alertes.push('Ton dossier (biens, crédits, loyers) est vide : remplis-le sur la page Dossier. Il reste sur ton serveur.');
-    return [200, todayPage({ now: new Date(), sante: await readJson(path.join(STATE, 'sante.json')), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json')), notes: await lastNotes(), echeances: upcoming(summary, asOf), fiscal: upcomingDeadlines(asOf, 45), alertes, attentes: await readJson(path.join(STATE, 'decisions.json')) })];
+    return [200, todayPage({ now: new Date(), sante: await readJson(path.join(STATE, 'sante.json')), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json')), notes: await lastNotes(), echeances: upcoming(summary, asOf), fiscal: upcomingDeadlines(asOf, 45), alertes, attentes: await readJson(path.join(STATE, 'decisions.json')), budget: budget(data, summary, (await readJson(PRIVE)) || {}) })];
   }
-  if (url === '/patrimoine') return [200, patrimoinePage({ summary, asOf, vide })];
-  if (url === '/dossier') return [200, dossierPage({ data, token: FORM_TOKEN, message: opts.message, vide, sent: opts.message && !opts.message.ok ? opts.fields : null })];
+  if (url === '/patrimoine') return [200, patrimoinePage({ summary, asOf, vide, papiers: compterPar((await readIndex(COFFRE_INDEX)).list) })];
+  if (url === '/coffre') {
+    const { etat: ce, list } = await readIndex(COFFRE_INDEX);
+    if (ce === 'illisible') return [500, errorPage('La liste de ton coffre est présente mais illisible. Je ne l’affiche pas et rien ne peut l’écraser : dis-le à Claude, la dernière sauvegarde la contient.')];
+    const q = opts.query || {};
+    const places = rattachements(data);
+    const filtre = { r: places.some(([k]) => k === q.r) ? q.r : '', afaire: q.afaire === '1' };
+    const distant = ((await readJson(path.join(STATE, 'coffre-distant.json'))) || {}).ids;
+    const nonce = crypto.randomBytes(16).toString('base64url');
+    return [200, coffrePage({ index: list, places, filtre, token: FORM_TOKEN, message: opts.message, sent: opts.message && !opts.message.ok ? opts.fields : null, distant: Array.isArray(distant) ? distant.filter((id) => list.some((d) => d.id === id)).length : null, cle: !!(await readKey(COFFRE_KEY)), todayIso: asOf, nonce, script: CLIENT_JS, verif: (await readVerifier(COFFRE_VERIF)) || '' }), withScript(nonce)];
+  }
+  if (url === '/dossier') return [200, dossierPage({ data, token: FORM_TOKEN, message: opts.message, vide, sent: opts.message && !opts.message.ok ? opts.fields : null, dernieres: Object.fromEntries(summary.biens.filter((b) => b.end).map((b) => [b.id, b.end])) })];
+  if (url === '/prospects') {
+    const { etat: pe, list } = await readProspects();
+    if (pe === 'illisible') return [500, errorPage('Ta liste de prospects est présente mais illisible. Je ne l’affiche pas et rien ne peut l’écraser : dis-le à Claude, la dernière sauvegarde la contient.')];
+    return [200, prospectsPage({ list, token: FORM_TOKEN, message: opts.message, sent: opts.message && !opts.message.ok ? opts.fields : null, todayIso: asOf })];
+  }
   if (url === '/mes-chiffres') return [200, chiffresPage({ data, prive: await readJson(PRIVE), token: FORM_TOKEN, message: opts.message })];
   if (url === '/sauvegardes') {
     // Without Face ID configured (RP_ID empty) nothing is session-protected: the key is then never shown.
@@ -169,22 +199,89 @@ export async function actDossier(pathname, fields, now = new Date()) {
   }
 }
 
+// Prospects: same rules as the dossier (missing = empty list; unreadable = never overwritten; all or nothing).
+export async function readProspects(file = PROSPECTS) {
+  let raw;
+  try { raw = await fs.readFile(file, 'utf8'); } catch (e) { return e.code === 'ENOENT' ? { etat: 'absent', list: [] } : { etat: 'illisible', list: [] }; }
+  try { const l = JSON.parse(raw); if (Array.isArray(l)) return { etat: 'ok', list: l }; } catch { /* fall through */ }
+  return { etat: 'illisible', list: [] };
+}
+export async function actProspects(fields, now = new Date(), file = PROSPECTS) {
+  const { etat, list } = await readProspects(file);
+  if (etat === 'illisible') return { ok: false, text: 'Ta liste de prospects sur le serveur est illisible : je refuse de l’écraser. Dis-le à Claude.' };
+  try {
+    const next = parseProspectsForm(fields, list, now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }));
+    await writeDossier(file, next);
+    return { ok: true, text: 'Prospects enregistrés sur ton serveur.' };
+  } catch (e) {
+    return { ok: false, text: e.champ ? `Rien n’a été enregistré — ${e.message}.` : 'Rien n’a été enregistré : un champ n’est pas valide ou le serveur n’a pas pu écrire.' };
+  }
+}
+
+const coffreCtx = async (now = new Date()) => ({ dir: COFFRE_DIR, indexFile: COFFRE_INDEX, keyFile: COFFRE_KEY, verifFile: COFFRE_VERIF, places: rattachements((await readDossier(DATA)).data), todayIso: now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }) });
+const askBackup = () => fs.writeFile(path.join(path.dirname(DATA), 'sauvegarde-demandee'), new Date().toISOString()).catch(() => {});
+
+// Filing a paper: multipart form (one file), read as bytes with a hard size limit, checked like every form.
+export async function handleUpload(req, res) {
+  const len = Number(req.headers['content-length'] || 0);
+  let message, fields = null;
+  if (len > MAX_FILE + 64 * 1024) message = { ok: false, text: 'Rien n’a été rangé — fichier trop lourd (15 Mo maximum). Scanne-le en noir et blanc ou en plusieurs parties.' };
+  else {
+    try {
+      const body = await readRaw(req, MAX_FILE + 64 * 1024);
+      const { fields: f, file } = parseMultipart(body, req.headers['content-type']);
+      fields = f;
+      if (!sameSite(req) || f.jeton !== FORM_TOKEN) message = { ok: false, text: 'Formulaire expiré ou venu d’ailleurs : rien n’a été rangé. Recharge la page et recommence.' };
+      else { message = await addDoc(f, file, await coffreCtx()); if (message.ok) await askBackup(); }
+    } catch { message = { ok: false, text: 'Rien n’a été rangé : le fichier n’a pas pu être lu. Réessaie.' }; }
+  }
+  if (message.ok) fields = null;
+  if (String(req.headers.accept || '').includes('application/json')) return json(res, message.ok ? 200 : 400, { ok: message.ok, text: message.text });
+  const [, html, headers] = await render('/coffre', { message, fields, query: {} });
+  res.writeHead(message.ok ? 200 : 400, headers || SECURITY); res.end(html);
+}
+export async function actCoffre(fields) {
+  try { const r = await editDoc(fields, await coffreCtx()); if (r.ok) await askBackup(); return r; }
+  catch { return { ok: false, text: 'Rien n’a été changé : le serveur n’a pas pu écrire.' }; }
+}
+// The page around one paper (title, back button, the paper in a frame or as a picture). Nothing decrypted here.
+export async function viewDoc(id) {
+  const { list } = await readIndex(COFFRE_INDEX);
+  const doc = /^[a-f0-9]{24}$/.test(String(id)) && list.find((d) => d.id === id);
+  if (!doc) return [404, errorPage('Papier introuvable.')];
+  const nonce = crypto.randomBytes(16).toString('base64url');
+  const html = coffreViewPage({ doc, places: rattachements((await readDossier(DATA)).data), nonce, script: doc.e2e ? CLIENT_JS : null });
+  return [200, html, doc.e2e ? withScript(nonce) : { ...SECURITY, 'content-security-policy': SECURITY['content-security-policy'].replace("frame-ancestors 'none'", "frame-src 'self'; frame-ancestors 'none'") }];
+}
+// Opening a paper: decrypted in memory, shown in the browser. Only PDF and photos ever get here (checked at filing).
+export async function serveDoc(id) {
+  const doc = await readDoc(id, await coffreCtx());
+  if (!doc) return null;
+  const name = `${doc.meta.titre.replace(/[^\p{L}\p{N} ._-]/gu, '').slice(0, 60) || 'papier'}.${doc.meta.ext}`;
+  // Sealed on the phone: still sealed here; sent as opaque bytes (the page's script opens it, in memory, with the password).
+  if (doc.meta.e2e) return { body: doc.data, headers: { 'content-type': 'application/octet-stream', 'content-length': doc.data.length, 'content-disposition': 'attachment; filename="papier.ckf"', 'x-content-type-options': 'nosniff', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } };
+  return { body: doc.data, headers: { 'content-type': doc.meta.mime, 'content-length': doc.data.length, 'content-disposition': `inline; filename*=UTF-8''${encodeURIComponent(name)}`,
+    'x-content-type-options': 'nosniff', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'content-security-policy': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'self'" } };
+}
+
 export async function handlePost(req, res, pathname) {
   let body;
-  try { body = await readBody(req, pathname.startsWith('/dossier') ? 65536 : 8192); } catch { res.writeHead(413, SECURITY); return res.end(errorPage('Trop de données.')); }
+  try { body = await readBody(req, pathname.startsWith('/dossier') || pathname === '/prospects' ? 65536 : 8192); } catch { res.writeHead(413, SECURITY); return res.end(errorPage('Trop de données.')); }
   const fields = Object.fromEntries(new URLSearchParams(body));
-  const page = pathname.startsWith('/sauvegardes') ? '/sauvegardes' : pathname.startsWith('/dossier') ? '/dossier' : '/mes-chiffres';
+  const page = pathname.startsWith('/sauvegardes') ? '/sauvegardes' : pathname.startsWith('/dossier') ? '/dossier' : pathname === '/prospects' ? '/prospects' : pathname === '/coffre/modifier' ? '/coffre' : '/mes-chiffres';
   let message;
   if (!sameSite(req) || fields.jeton !== FORM_TOKEN) message = { ok: false, text: 'Formulaire expiré ou venu d’ailleurs : rien n’a été enregistré. Recharge la page et recommence.' };
   else if (page === '/sauvegardes') { try { message = await actSauvegardes(pathname, fields); } catch { message = { ok: false, text: 'Impossible pour l’instant. Rien n’a été gardé.' }; } }
   else if (page === '/dossier') message = await actDossier(pathname, fields);
+  else if (page === '/prospects') message = await actProspects(fields);
+  else if (page === '/coffre') message = await actCoffre(fields);
   else {
     try { await savePrive(fields, (await readDossier(DATA)).data); message = { ok: true, text: 'Enregistré sur ton serveur.' }; }
     catch { message = { ok: false, text: 'Un montant n’est pas valide (exemple : 1650 ou 1 650,50). Rien n’a été enregistré.' }; }
   }
-  const sent = page === '/dossier' && pathname === '/dossier' ? fields : null; // re-shown on refusal, never stored
-  const [code, html] = await render(page, { message, fields: sent });
-  res.writeHead(message.ok ? 200 : 400, SECURITY); res.end(html);
+  const sent = (page === '/dossier' && pathname === '/dossier') || page === '/prospects' ? fields : null; // the safe's edit forms are per paper: nothing re-shown // re-shown on refusal, never stored
+  const [code, html, headers] = await render(page, { message, fields: sent, query: {} });
+  res.writeHead(message.ok ? 200 : 400, headers || SECURITY); res.end(html);
 }
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
@@ -197,10 +294,20 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
       if (pathname === '/acces') { const nonce = crypto.randomBytes(16).toString('base64url'); res.writeHead(200, withNonce(nonce)); return res.end(accesPage({ nonce, hasKeys: keyStore.list().length > 0 })); }
       if (auth && !currentSession(req)) { res.writeHead(303, { location: '/acces', 'cache-control': 'no-store', 'set-cookie': `${COOKIE}=; Path=/; Max-Age=0` }); return res.end(); }
       if (req.method === 'POST' && pathname === '/deconnexion') { sessions.drop(parseCookies(req.headers.cookie)[COOKIE]); res.writeHead(303, { location: '/acces', 'set-cookie': `${COOKIE}=; Path=/; Max-Age=0` }); return res.end(); }
-      if (req.method === 'POST' && (pathname === '/mes-chiffres' || pathname === '/dossier' || pathname === '/dossier/retirer' || pathname.startsWith('/sauvegardes/'))) return await handlePost(req, res, pathname);
+      if (req.method === 'POST' && pathname === '/coffre/ajouter') return await handleUpload(req, res);
+      if (req.method === 'POST' && (pathname === '/mes-chiffres' || pathname === '/dossier' || pathname === '/dossier/retirer' || pathname === '/prospects' || pathname === '/coffre/modifier' || pathname.startsWith('/sauvegardes/'))) return await handlePost(req, res, pathname);
+      if (req.method === 'GET' && pathname.startsWith('/coffre/voir/')) {
+        const [vc, vh, vhead] = await viewDoc(pathname.slice('/coffre/voir/'.length));
+        res.writeHead(vc, vhead || SECURITY); return res.end(vh);
+      }
+      if (req.method === 'GET' && pathname.startsWith('/coffre/f/')) {
+        const doc = await serveDoc(pathname.slice('/coffre/f/'.length));
+        if (!doc) { res.writeHead(404, SECURITY); return res.end(errorPage('Papier introuvable.')); }
+        res.writeHead(200, doc.headers); return res.end(doc.body);
+      }
       if (req.method !== 'GET') { res.writeHead(405, SECURITY); return res.end(errorPage('Méthode refusée.')); }
-      const [code, html] = await render(pathname);
-      res.writeHead(code, SECURITY); res.end(html);
+      const [code, html, headers] = await render(pathname, { query: Object.fromEntries(new URL(req.url, 'http://x').searchParams) });
+      res.writeHead(code, headers || SECURITY); res.end(html);
     } catch (e) { res.writeHead(500, SECURITY); res.end(errorPage('Erreur interne.')); console.error(e); }
   }).listen(PORT, process.env.HOST || '127.0.0.1', () => console.log(`cockpit-app on ${process.env.HOST || '127.0.0.1'}:${PORT}`));
 }

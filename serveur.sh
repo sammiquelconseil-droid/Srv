@@ -24,9 +24,15 @@ cat > /usr/local/sbin/cockpit-sauvegarde <<'SH'
 # Sauvegarde chiffrée : 14 copies sur le serveur + copie hors du serveur (dépôt privé cockpit,
 # branche « sauvegardes »), relue et comparée à chaque fois. Résultat dans /var/lib/cockpit/sauvegarde.json.
 set -uo pipefail
+# Une seule sauvegarde à la fois (la nuit et « après modification » peuvent tomber ensemble).
+exec 9> /run/cockpit-sauvegarde.lock; flock 9
+# R : état gardé par root seul. Les fichiers lus par l'appli sont écrits ici puis déplacés d'un coup dans
+# /var/lib/cockpit (mv remplace un éventuel lien au lieu de le suivre : root ne touche jamais un lien posé là).
+R=/var/lib/cockpit-sauvegarde; install -d -m 700 "$R"
+publish() { chown -h cockpit:cockpit "$1"; chmod 640 "$1"; mv -f "$1" "/var/lib/cockpit/$2"; }
 D=/var/backups/cockpit; install -d -m 750 -g cockpit "$D"
 f="$D/cockpit-$(date +%Y%m%d-%H%M).tar.age"
-tar -C / --exclude=var/lib/cockpit/cle-a-remettre --exclude='var/lib/cockpit/tmp-*' \
+tar -C / --exclude=var/lib/cockpit/cle-a-remettre --exclude='var/lib/cockpit/tmp-*' --exclude=var/lib/cockpit/coffre \
   -cf - etc/cockpit var/lib/cockpit 2> /dev/null | age -R /etc/cockpit/sauvegarde.pub -o "$f" || { echo "échec du chiffrement"; exit 1; }
 chgrp cockpit "$f"; chmod 640 "$f"
 ls -1t "$D"/*.tar.age | tail -n +15 | xargs -r rm -f
@@ -49,10 +55,37 @@ if [ -z "$tok" ]; then erreur="pas de jeton GitHub"; else
     back=$(curl -fsSL "${H[@]}" -H "Accept: application/vnd.github.raw" "$api/contents/$p?ref=sauvegardes" | sha256sum | cut -d' ' -f1)
     [ "$back" = "$sha" ] && distant=true || erreur="copie distante différente"
   else erreur="${erreur:-envoi vers GitHub refusé}"; fi
+  # Coffre : chaque papier (déjà chiffré par l'appli) est rechiffré avec la clé de sauvegarde et envoyé UNE fois,
+  # à part, pour que la sauvegarde de chaque nuit reste petite. Liste des papiers copiés : $R/coffre-distant.json
+  # (vidée par /nouvelle_cle : tout est alors renvoyé, chiffré avec la nouvelle clé, en remplaçant l'ancienne copie).
+  dist="$R/coffre-distant.json"
+  jq -e '.ids | type == "array"' "$dist" > /dev/null 2>&1 || echo '{"ids":[]}' > "$dist"
+  for doc in /var/lib/cockpit/coffre/*.ckf; do
+    [ -e "$doc" ] || break
+    id=$(basename "$doc" .ckf)
+    [[ "$id" =~ ^[a-f0-9]{24}$ ]] || continue
+    jq -e --arg i "$id" '.ids | index($i)' "$dist" > /dev/null && continue
+    enc="$R/envoi.age"; rm -f "$enc"
+    if age -R /etc/cockpit/sauvegarde.pub -o "$enc" "$doc"; then
+      old=$(curl -fsS "${H[@]}" "$api/contents/sauvegardes/coffre/$id.age?ref=sauvegardes" 2> /dev/null | jq -r '.sha // empty')
+      jq -n --arg m "Coffre $(date +%d/%m) [skip ci] [skip render] [skip netlify]" --rawfile c <(base64 -w0 "$enc") --arg s "$old" \
+        '{message:$m, content:$c, branch:"sauvegardes"} + (if $s == "" then {} else {sha:$s} end)' > "$body"
+      if curl -fsS "${H[@]}" -X PUT "$api/contents/sauvegardes/coffre/$id.age" --data @"$body" > /dev/null; then
+        jq --arg i "$id" '.ids += [$i]' "$dist" > "$dist.tmp" && mv -f "$dist.tmp" "$dist"
+      fi
+    fi
+    rm -f "$enc"
+  done
 fi
-jq -n --arg d "$(date -Iseconds)" --arg f "$(basename "$f")" --argjson t "$size" --arg s "$sha" --argjson r "$distant" --arg e "$erreur" \
-  '{date:$d, fichier:$f, taille:$t, sha256:$s, distant:$r, erreur:$e}' > /var/lib/cockpit/sauvegarde.json
-chown cockpit:cockpit /var/lib/cockpit/sauvegarde.json
+manquants=0
+for doc in /var/lib/cockpit/coffre/*.ckf; do
+  [ -e "$doc" ] || break
+  jq -e --arg i "$(basename "$doc" .ckf)" '.ids | index($i)' "$R/coffre-distant.json" > /dev/null 2>&1 || manquants=$((manquants + 1))
+done
+[ -f "$R/coffre-distant.json" ] && cp "$R/coffre-distant.json" "$R/pub-coffre.json" && publish "$R/pub-coffre.json" coffre-distant.json
+jq -n --arg d "$(date -Iseconds)" --arg f "$(basename "$f")" --argjson t "$size" --arg s "$sha" --argjson r "$distant" --arg e "$erreur" --argjson c "$manquants" \
+  '{date:$d, fichier:$f, taille:$t, sha256:$s, distant:$r, erreur:$e, coffre_manquants:$c}' > "$R/pub-sauvegarde.json"
+publish "$R/pub-sauvegarde.json" sauvegarde.json
 echo "sauvegarde $(basename "$f") distant=$distant $erreur"
 SH
 chmod 755 /usr/local/sbin/cockpit-sauvegarde
@@ -103,6 +136,9 @@ age-keygen -o /var/lib/cockpit/cle-a-remettre 2> /dev/null
 age-keygen -y /var/lib/cockpit/cle-a-remettre > /etc/cockpit/sauvegarde.pub
 chown cockpit:cockpit /var/lib/cockpit/cle-a-remettre; chmod 600 /var/lib/cockpit/cle-a-remettre; chmod 644 /etc/cockpit/sauvegarde.pub
 rm -f /var/lib/cockpit/bot-state-keysent
+# Nouvelle clé : les papiers du coffre déjà copiés hors du serveur l'étaient avec l'ancienne clé. On vide la liste
+# pour qu'ils soient tous renvoyés (et remplacés) avec la nouvelle.
+install -d -m 700 /var/lib/cockpit-sauvegarde; echo '{"ids":[]}' > /var/lib/cockpit-sauvegarde/coffre-distant.json
 /usr/local/sbin/cockpit-sauvegarde || true
 SH
 chmod 755 /usr/local/sbin/cockpit-nouvelle-cle
@@ -131,6 +167,11 @@ systemctl enable --now cockpit-sauvegarde-demandee.path > /dev/null
 RAW=https://raw.githubusercontent.com/sammiquelconseil-droid/srv/main
 install -d -m 755 "${APP_DIR:-/opt/cockpit-app}/app" "${APP_DIR:-/opt/cockpit-app}/src"
 install -d -m 750 -o cockpit -g cockpit /var/lib/cockpit/data
+# Coffre (papiers de Sam) : fichiers chiffrés par l'appli dans /var/lib/cockpit/coffre ; leur clé est rangée hors du
+# dossier de données, lisible par l'appli seulement (C-102). Créée une seule fois ; elle voyage dans la sauvegarde chiffrée.
+install -d -m 700 -o cockpit -g cockpit /var/lib/cockpit/coffre
+if [ ! -f /etc/cockpit/coffre.key ]; then (umask 077; head -c 32 /dev/urandom > /etc/cockpit/coffre.key); fi
+chown root:cockpit /etc/cockpit/coffre.key; chmod 640 /etc/cockpit/coffre.key
 APP=${APP_DIR:-/opt/cockpit-app}
 stage=$(mktemp -d); mkdir -p "$stage/app" "$stage/src"
 curl -fsSL -H 'Cache-Control: no-cache' "$RAW/cockpit-app/FILES" -o "$stage/FILES"

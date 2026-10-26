@@ -7,10 +7,11 @@ import crypto from 'node:crypto';
 export const STATUTS = ['declare', 'verifie', 'estime', 'hypothese'];
 const KEPT_STATUTS = [...STATUTS, 'a_saisir']; // accepted when they come back from the file unchanged
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const MAX_BIENS = 12, MAX_LOYERS = 6, MAX_ALERTES = 5, ALERTE_LEN = 200, MAX_ABOS = 20;
+const MAX_BIENS = 12, MAX_LOYERS = 6, MAX_ALERTES = 5, ALERTE_LEN = 200, MAX_ABOS = 20, MAX_CHARGES = 40;
+export const FREQUENCES = ['mois', 'an'];
 export const EMPTY_NOTE = 'Dossier vide : à remplir sur la page Dossier.';
 
-export const emptyDossier = () => ({ maj: null, note: EMPTY_NOTE, biens: [], revenus: { revenuFiscalReferenceCents: { statut: 'a_saisir' }, salaireNetMois: { statut: 'a_saisir' }, microEntreprise: {} }, abonnements: [] });
+export const emptyDossier = () => ({ maj: null, note: EMPTY_NOTE, biens: [], revenus: { revenuFiscalReferenceCents: { statut: 'a_saisir' }, salaireNetMois: { statut: 'a_saisir' }, microEntreprise: {} }, abonnements: [], charges: [] });
 
 // "1 650,50" -> 165050 ; '' -> null ; anything else throws.
 export function parseEuros(input) {
@@ -110,19 +111,64 @@ export function parseDossierForm(fields, current, todayIso) {
   const oldRfr = (cur.revenus && cur.revenus.revenuFiscalReferenceCents) || {};
   revenus.revenuFiscalReferenceCents = rfr === null ? { ...oldRfr, statut: 'a_saisir' } : { ...oldRfr, valeur: rfr, statut: statut(fields.rfrStatut, 'revenu fiscal de référence') };
   if (rfr === null) delete revenus.revenuFiscalReferenceCents.valeur;
+  // Optional renewal date + notice (days) on a subscription or a fixed expense → reminders 30 and 7 days before.
+  const renewal = (prefix, nom) => {
+    const r = {};
+    const d = date(fields[`${prefix}.renouv`], `« ${nom} » · date de renouvellement`);
+    if (d) r.renouvellement = d;
+    if (filled(fields[`${prefix}.preavis`])) r.preavisJours = integer(fields[`${prefix}.preavis`], `« ${nom} » · préavis (jours)`, 0, 365);
+    return r;
+  };
   const abonnements = [];
   for (let i = 0; i < MAX_ABOS; i++) {
     if (!(`a${i}.nom` in fields)) continue;
     const nom = text(fields[`a${i}.nom`], `abonnement n°${i + 1}`, 40);
     if (!nom) continue; // emptied = removed
-    abonnements.push({ nom, montantCents: money(fields[`a${i}.montant`], `abonnement « ${nom} » · prix par mois`, { required: true }), statut: statut(fields[`a${i}.statut`], `abonnement « ${nom} »`) });
+    abonnements.push({ nom, montantCents: money(fields[`a${i}.montant`], `abonnement « ${nom} » · prix par mois`, { required: true }), statut: statut(fields[`a${i}.statut`], `abonnement « ${nom} »`), ...renewal(`a${i}`, nom) });
   }
   if (filled(fields['anew.nom']) || filled(fields['anew.montant'])) {
     const nom = text(fields['anew.nom'], 'ajouter un abonnement · nom', 40, { required: true });
-    abonnements.push({ nom, montantCents: money(fields['anew.montant'], `abonnement « ${nom} » · prix par mois`, { required: true }), statut: statut(fields['anew.statut'], `abonnement « ${nom} »`) });
+    abonnements.push({ nom, montantCents: money(fields['anew.montant'], `abonnement « ${nom} » · prix par mois`, { required: true }), statut: statut(fields['anew.statut'], `abonnement « ${nom} »`), ...renewal('anew', nom) });
   }
   if (new Set(abonnements.map((a) => a.nom)).size !== abonnements.length) fail('abonnements', 'deux abonnements ont le même nom');
-  const out = { ...cur, maj: todayIso, biens, revenus, abonnements };
+  // Fixed expenses (insurance, electricity, phone, taxes paid monthly…) : name, amount, per month or per year.
+  const charges = [];
+  const charge = (prefix, label) => {
+    const nom = text(fields[`${prefix}.nom`], `${label} · nom`, 40, { required: true });
+    const freq = String(fields[`${prefix}.freq`] || 'mois');
+    if (!FREQUENCES.includes(freq)) fail(`dépense « ${nom} »`, 'fréquence inconnue');
+    return { nom, montantCents: money(fields[`${prefix}.montant`], `dépense « ${nom} » · montant`, { required: true }), frequence: freq, ...renewal(prefix, nom) };
+  };
+  for (let i = 0; i < MAX_CHARGES; i++) {
+    if (!(`c${i}.nom` in fields)) continue;
+    if (!filled(fields[`c${i}.nom`]) && !filled(fields[`c${i}.montant`])) continue; // emptied = removed
+    charges.push(charge(`c${i}`, `dépense n°${i + 1}`));
+  }
+  if (filled(fields['cnew.nom']) || filled(fields['cnew.montant'])) charges.push(charge('cnew', 'ajouter une dépense'));
+  // « 📋 Coller une liste » : one line per item, « Abonnement|Dépense ; nom ; montant ; mois|an ; jj/mm/aaaa ; préavis ».
+  // A name already in the list is UPDATED (that is how the list is brought up to date), never duplicated.
+  String(fields.coller || '').split('\n').map((l) => l.trim()).filter(Boolean).forEach((line, n) => {
+    const where = `ligne collée n°${n + 1}`;
+    const parts = line.split(';').map((x) => x.trim());
+    if (parts.length < 3) fail(where, 'il faut au moins « Abonnement ou Dépense ; nom ; montant »');
+    const kind = parts[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const list = kind.startsWith('abo') ? abonnements : kind.startsWith('dep') ? charges : fail(where, 'commence par « Abonnement » ou « Dépense »');
+    const nom = text(parts[1], `${where} · nom`, 40, { required: true });
+    const montantCents = money(parts[2], `${where} · montant`, { required: true });
+    const freq = (parts[3] || 'mois').toLowerCase() === 'an' ? 'an' : 'mois';
+    let renouvellement;
+    if (parts[4]) { const m = parts[4].match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if (!m) fail(`${where} · date`, 'format jj/mm/aaaa'); renouvellement = date(`${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`, `${where} · date`); }
+    const preavis = parts[5] ? integer(parts[5], `${where} · préavis`, 0, 365) : undefined;
+    const item = list === abonnements ? { nom, montantCents, statut: 'declare' } : { nom, montantCents, frequence: freq };
+    if (renouvellement) item.renouvellement = renouvellement;
+    if (preavis !== undefined) item.preavisJours = preavis;
+    const i = list.findIndex((x) => x.nom.toLowerCase() === nom.toLowerCase());
+    if (i >= 0) list[i] = { ...list[i], ...item }; else list.push(item);
+  });
+  if (abonnements.length > MAX_ABOS) fail('abonnements', `${MAX_ABOS} au maximum`);
+  if (charges.length > MAX_CHARGES) fail('dépenses', `${MAX_CHARGES} au maximum`);
+  if (new Set(charges.map((c) => c.nom)).size !== charges.length) fail('dépenses', 'deux dépenses ont le même nom');
+  const out = { ...cur, maj: todayIso, biens, revenus, abonnements, charges };
   if (out.note === EMPTY_NOTE) out.note = 'Dossier de Sam, gardé sur son serveur seulement (C-094). Montants en centimes.';
   return out;
 }

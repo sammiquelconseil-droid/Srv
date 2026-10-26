@@ -89,12 +89,23 @@ export function createAuth({ rpId, origin, store, now = () => Date.now() }) {
 }
 
 // Sessions: random id in an HttpOnly cookie; kept in a file so they survive a restart.
-export function createSessions({ load, save, ttlMs = 12 * 3600e3, now = () => Date.now() }) {
+// A session ends after `idleMs` without any page opened (auto-lock, Sam 26/10) and in any case after `ttlMs`.
+// The idle clock is kept in memory and saved at most once a minute (no disk write on every click).
+export function createSessions({ load, save, ttlMs = 12 * 3600e3, idleMs = 15 * 60e3, now = () => Date.now() }) {
   let map = load() || {};
-  const prune = () => { for (const [k, v] of Object.entries(map)) if (v.exp < now()) delete map[k]; };
+  let savedAt = 0;
+  const alive = (v) => v.exp >= now() && (v.seen || 0) + idleMs >= now();
+  const prune = () => { for (const [k, v] of Object.entries(map)) if (!alive(v)) delete map[k]; };
   return {
-    create(label) { prune(); const id = b64u.enc(crypto.randomBytes(32)); map[id] = { exp: now() + ttlMs, label }; save(map); return id; },
-    check(id) { prune(); const s = id && map[id]; return s ? s : null; },
+    create(label) { prune(); const id = b64u.enc(crypto.randomBytes(32)); map[id] = { exp: now() + ttlMs, seen: now(), label }; save(map); savedAt = now(); return id; },
+    check(id) {
+      prune();
+      const s = id && map[id];
+      if (!s) return null;
+      s.seen = now();
+      if (now() - savedAt > 60e3) { save(map); savedAt = now(); }
+      return s;
+    },
     drop(id) { delete map[id]; save(map); },
     dropAll() { map = {}; save(map); },
   };

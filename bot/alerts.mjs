@@ -1,15 +1,23 @@
 // Alerts in three levels (REGLES-COMMUNES §I): critique and décision are sent, information stays in /sante.
 // A known problem is announced again only when its level changes.
 import { remindersFor } from './echeancier.mjs';
+import { rappelsDossier } from './rappels.mjs';
+import { rappelsProspects } from './prospects.mjs';
+import { rappelsCoffre } from './coffre.mjs';
 const H = 3600e3;
 const fr = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 
 // todayIso (Paris date) enables the fiscal reminders: one « décision » per deadline at J-30, J-7 and J-1,
 // each with its own cause so it is sent exactly once.
-export function evaluate({ sante, sauvegarde, ficheRappel, todayIso = null, now = Date.now() }) {
+export function evaluate({ sante, sauvegarde, ficheRappel, todayIso = null, dossier = null, prospects = null, coffre = null, now = Date.now() }) {
   const out = [];
   const add = (cause, level, text) => out.push({ cause, level, text });
   if (todayIso) for (const e of remindersFor(todayIso)) add(`echeance:${e.id}:${e.date}:J-${e.jours}`, 'decision', `📅 ${e.jours === 1 ? 'Demain' : `Dans ${e.jours} jours`} (${fr(e.date)}) : ${e.libelle}.${e.statut === 'a_verifier' ? ' Date à revérifier cette année.' : ''} Détail sur l’écran Aujourd’hui du Cockpit.`);
+  if (todayIso && dossier) for (const r of rappelsDossier(dossier, todayIso)) add(r.cause, 'decision', r.text);
+  if (todayIso && Array.isArray(coffre)) for (const r of rappelsCoffre(coffre, todayIso)) add(r.cause, 'decision', r.text);
+  // Prospects: once a day, not before 9 a.m. Paris (no work notification in the night), count only.
+  const heure = Number(new Date(now).toLocaleString('fr-FR', { hour: 'numeric', hour12: false, timeZone: 'Europe/Paris' }).replace(/\D/g, ''));
+  if (todayIso && Array.isArray(prospects) && heure >= 9) for (const r of rappelsProspects(prospects, todayIso)) add(r.cause, 'decision', r.text);
   if (!sante || now - Date.parse(sante.date) > 36 * H) add('sante', 'critique', 'Le contrôle de santé du serveur n’a pas tourné depuis plus de 36 h.');
   else {
     if (sante.reseau_prive === false) add('reseau', 'critique', 'Le serveur n’est plus sur ton réseau privé (Tailscale).');
