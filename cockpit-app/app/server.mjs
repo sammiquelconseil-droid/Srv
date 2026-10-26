@@ -159,7 +159,7 @@ async function handleAccess(req, res, pathname) {
     if (pathname === '/acces/connexion') {
       const cred = auth.authenticate(body);
       const sid = sessions.create(cred.label);
-      res.writeHead(200, { ...JSONH, 'set-cookie': `${COOKIE}=${sid}; Path=/; HttpOnly; ${ORIGIN.startsWith('https') ? 'Secure; ' : ''}SameSite=Strict; Max-Age=43200` });
+      res.writeHead(200, { ...JSONH, 'set-cookie': `${COOKIE}=${sid}; Path=/; HttpOnly; ${ORIGIN.startsWith('https') ? 'Secure; ' : ''}SameSite=Lax; Max-Age=43200` });
       return res.end(JSON.stringify({ ok: true }));
     }
     return json(res, 404, { erreur: 'inconnu' });

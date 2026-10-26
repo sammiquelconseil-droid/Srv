@@ -8,7 +8,7 @@ export const TYPES = [
 ];
 // Where a paper belongs, besides each house of the dossier (bien:<id>).
 export const DOMAINES = [
-  ['perso', '👤', 'Perso'], ['sm', '💼', 'Ma micro-entreprise'], ['impots', '🏦', 'Impôts et URSSAF'],
+  ['perso', '👤', 'Perso'], ['sm', '💼', 'Ma micro-entreprise'], ['vendix', '🧵', 'Vendix (contrats, offres)'], ['impots', '🏦', 'Impôts et URSSAF'],
   ['projet:hoc', '🧶', 'HOC'], ['projet:zaff', '👕', 'Les Zaff'], ['projet:lingfi', '🛍', 'Lingfi'],
   ['projet:leadgen', '🔥', 'LeadGen Rénov'], ['projet:cockpit', '🧭', 'Cockpit'], ['autre', '📦', 'Autre'],
 ];

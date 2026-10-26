@@ -58,6 +58,7 @@ select,textarea{font:inherit;font-size:16px;padding:10px 12px;border:1px solid v
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}h3{font-size:14px;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 4px}
 a.btn{display:inline-block;font-weight:700;background:var(--accentbg);color:var(--accent);border-radius:14px;padding:10px 16px;min-height:44px;line-height:24px;text-decoration:none;margin-top:8px}
 button.danger{background:var(--badbg);color:var(--bad)}
+#papier.plein{position:fixed;inset:0;z-index:60;background:#1c1c1e;overflow:auto;-webkit-overflow-scrolling:touch;padding:calc(60px + env(safe-area-inset-top)) 8px calc(20px + env(safe-area-inset-bottom));margin:0}
 footer.foot{display:none}@media(max-width:899px){nav a.more{display:none}footer.foot{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:22px}footer.foot a{color:var(--ink2);font-weight:600;text-decoration:none;padding:10px 14px;border-radius:12px;background:var(--card);min-height:44px}}
 .chips.f a{background:var(--card);color:var(--ink2);border:1px solid var(--line);text-decoration:none;border-radius:999px;padding:8px 12px;font-size:14px;font-weight:600;white-space:nowrap;min-height:40px;display:inline-flex;align-items:center}.chips.f a[aria-current]{background:var(--accent);color:#fff;border-color:var(--accent)}
 li.doc{display:flex;gap:12px;align-items:flex-start}li.doc .ic{font-size:24px;line-height:1.2}li.doc a.t{font-weight:700;color:var(--ink);text-decoration:none;font-size:16px}li.doc .m{color:var(--ink2);font-size:13.5px;margin-top:2px}li.doc details{margin-top:6px}li.doc summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600}
@@ -468,7 +469,7 @@ export function coffreViewPage({ doc, places, nonce = null, script = null, token
   ${doc.e2e ? keyPanel({ vaultInfo, verif, token, index }) : ''}
   <section class="card" style="margin-top:12px"><h2>${doc.e2e ? '🔒' : t[1]} ${title}</h2><p class="sub" style="margin-top:-6px">${esc(t[2])} · ${esc(libelle(places, doc.rattache))}${doc.date ? ` · ${esc(date(doc.date))}` : ''}${doc.e2e ? ' · chiffré sur ton iPhone' : ''}</p>
    <div id="papier" data-id="${esc(doc.id)}" data-src="${src}" data-mime="${esc(doc.mime)}" data-name="${esc(name)}" data-e2e="${doc.e2e ? '1' : '0'}"${doc.e2e ? ' hidden' : ''}>Chargement…</div>
-   <button type="button" id="partager" hidden style="width:100%">📤 Enregistrer ou envoyer</button>${warn}
+   <div class="grid2"><button type="button" id="pleinecran" hidden>⛶ Plein écran</button><button type="button" id="partager" hidden>📤 Enregistrer ou envoyer</button></div>${warn}
    <p class="note">${doc.e2e ? 'Le papier est déchiffré dans ton téléphone, le temps de le lire. ' : ''}« Enregistrer ou envoyer » ouvre le menu de partage de l’iPhone. Rien ne part sans ton choix.</p></section>
   <p style="margin-top:14px">${back}</p>`, { nonce, script });
 }

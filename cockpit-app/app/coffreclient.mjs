@@ -242,16 +242,26 @@ const CoffreE2E = (() => {
       pdfjs.GlobalWorkerOptions.workerSrc = '/coffre/pdfworker.mjs?v=4.10.38';
       const pdf = await pdfjs.getDocument({ data: data.slice(), isEvalSupported: false }).promise;
       out.textContent = '';
-      const width = Math.max(out.clientWidth, 280), ratio = Math.min(window.devicePixelRatio || 1, 3);
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
+      // Faster on the phone: every page gets its place at once (right size, blank), the first one is drawn
+      // straight away and the others only when they come near the screen. Sharpness x2 is enough to zoom in.
+      const width = Math.max(out.clientWidth, 280), ratio = Math.min(window.devicePixelRatio || 1, 2);
+      const draw = async (c) => {
+        if (c.dataset.done) return; c.dataset.done = '1';
+        const page = await pdf.getPage(Number(c.dataset.page));
         const vp = page.getViewport({ scale: (width / page.getViewport({ scale: 1 }).width) * ratio });
-        const c = document.createElement('canvas');
         c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+        await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      };
+      const io = 'IntersectionObserver' in window ? new IntersectionObserver((es) => { for (const e of es) if (e.isIntersecting) { io.unobserve(e.target); draw(e.target); } }, { rootMargin: '800px 0px' }) : null;
+      const first = await pdf.getPage(1), base = first.getViewport({ scale: 1 });
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const c = document.createElement('canvas');
+        c.dataset.page = String(i);
+        c.width = Math.floor(width * ratio); c.height = Math.floor(width * ratio * base.height / base.width); // placeholder size: like page 1
         c.style.cssText = 'width:100%;height:auto;display:block;background:#fff;border-radius:8px;margin:0 0 10px;box-shadow:0 1px 4px rgba(0,0,0,.15)';
         c.setAttribute('aria-label', `page ${i} sur ${pdf.numPages}`);
         out.append(c);
-        await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+        if (i === 1 || !io) await draw(c); else io.observe(c);
       }
     } else {
       const img = document.createElement('img');
@@ -269,6 +279,18 @@ const CoffreE2E = (() => {
       catch (e) { if (e && e.name === 'AbortError') return; }
       const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; document.body.append(a); a.click(); a.remove();
     };
+    // « Plein écran »: the paper alone over the whole screen (zoom with two fingers), « ✕ Fermer » to come back.
+    const big = $('pleinecran');
+    if (big) {
+      big.hidden = false;
+      big.onclick = () => {
+        const close = document.createElement('button');
+        close.type = 'button'; close.textContent = '✕ Fermer';
+        close.style.cssText = 'position:fixed;top:calc(10px + env(safe-area-inset-top));right:12px;z-index:61;margin:0';
+        out.classList.add('plein'); document.body.append(close); document.body.style.overflow = 'hidden';
+        close.onclick = () => { out.classList.remove('plein'); close.remove(); document.body.style.overflow = ''; };
+      };
+    }
     share.hidden = false;
     share.onclick = () => { if (sensitive && warn) { warn.hidden = false; share.hidden = true; } else go(); };
     if (warn) { $('avertir-ok').onclick = () => { warn.hidden = true; share.hidden = false; go(); }; $('avertir-non').onclick = () => { warn.hidden = true; share.hidden = false; }; }
