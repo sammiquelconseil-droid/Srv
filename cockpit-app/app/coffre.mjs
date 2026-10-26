@@ -5,14 +5,16 @@
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { parseMeta, MAX_DOCS } from '../src/coffre.mjs';
+import { parseMeta, MAX_DOCS, nommer, isE2 } from '../src/coffre.mjs';
 
 export const MAX_FILE = 15 * 1024 * 1024; // one document
 export const MAX_TOTAL = 3 * 1024 * 1024 * 1024; // the whole safe
 const MAGIC = 'CKF1';
 // A paper sealed on the phone (app/coffreclient.mjs) starts with CKE1: the server cannot read it and never tries.
+// CKE1 = sealed with a key derived from the password (first version) ; CKE2 = sealed with the vault key.
 export const SEALED = Buffer.from('CKE1');
-export const isSealed = (buf) => buf.length > 32 && buf.subarray(0, 4).equals(SEALED);
+export const SEALED2 = Buffer.from('CKE2');
+export const isSealed = (buf) => (buf.length > 32 && buf.subarray(0, 4).equals(SEALED)) || (buf.length > 16 && buf.subarray(0, 4).equals(SEALED2));
 export const E2E_MIMES = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/heic': 'heic' };
 const ID_RE = /^[a-f0-9]{24}$/;
 export const isId = (id) => ID_RE.test(String(id || ''));
@@ -97,6 +99,10 @@ async function addDocNow(fields, file, ctx) {
   if (file.data.length > MAX_FILE) return fail('Rien n’a été rangé — fichier trop lourd (15 Mo maximum). Scanne-le en noir et blanc ou en plusieurs parties.');
   // Sealed on the phone: the type is what the phone says, from the short list (the bytes are unreadable here).
   const e2e = isSealed(file.data);
+  // A paper ticked « 🔒 » must arrive sealed, with a sealed title, under the vault method (v2) and the id the phone
+  // used to seal it: if the page's script failed, nothing in clear is ever kept for it.
+  if (fields.sensible === '1' && !e2e) return fail('Rien n’a été rangé : ce papier 🔒 n’a pas été chiffré sur ton téléphone. Recharge la page et réessaie.');
+  if (e2e && (!file.data.subarray(0, 4).equals(SEALED2) || !isE2(meta.titre) || (meta.note && !isE2(meta.note)) || !isId(fields.id) || list.some((d) => d.id === fields.id))) return fail('Rien n’a été rangé : chiffrement incomplet. Recharge la page et réessaie.');
   const kind = e2e ? (E2E_MIMES[fields.mime] ? { mime: fields.mime, ext: E2E_MIMES[fields.mime] } : null) : detect(file.data);
   if (!kind) return fail('Rien n’a été rangé — seuls les PDF et les photos (JPEG, PNG, HEIC) sont acceptés.');
   if (list.length >= MAX_DOCS) return fail('Rien n’a été rangé — le coffre est plein (2 000 papiers). Dis-le à Claude.');
@@ -104,8 +110,8 @@ async function addDocNow(fields, file, ctx) {
   if (total + file.data.length > MAX_TOTAL) return fail('Rien n’a été rangé — le coffre est plein (3 Go). Dis-le à Claude.');
   const sha = crypto.createHash('sha256').update(file.data).digest('hex');
   const twin = list.find((d) => d.sha256 === sha);
-  if (twin) return fail(`Ce fichier est déjà dans ton coffre (« ${twin.titre} »). Rien n’a été ajouté.`);
-  const id = crypto.randomBytes(12).toString('hex');
+  if (twin) return fail(`Ce fichier est déjà dans ton coffre (${nommer(twin.titre)}). Rien n’a été ajouté.`);
+  const id = e2e ? fields.id : crypto.randomBytes(12).toString('hex');
   const target = path.join(ctx.dir, `${id}.ckf`);
   await fs.mkdir(ctx.dir, { recursive: true, mode: 0o700 });
   try {
@@ -115,7 +121,7 @@ async function addDocNow(fields, file, ctx) {
     // check the password; never replaced afterwards (a second password would split the vault in two).
     if (e2e && ctx.verifFile && /^[A-Za-z0-9+/=]{40,400}$/.test(String(fields.verifier || '')) && !(await readVerifier(ctx.verifFile))) await writeAtomic(ctx.verifFile, JSON.stringify({ verifier: fields.verifier }));
     await writeAtomic(ctx.indexFile, JSON.stringify([...list, doc], null, 1));
-    return { ok: true, text: e2e ? `🔒 « ${meta.titre} » est rangé, chiffré avec ton mot de passe du coffre. Sans ce mot de passe, personne ne peut l’ouvrir : garde-le sur ta fiche de secours.` : `✅ « ${meta.titre} » est rangé dans ton coffre.`, id };
+    return { ok: true, text: e2e ? `🔒 ${nommer(meta.titre)} est rangé, chiffré sur ton iPhone. Sans ton mot de passe du coffre, personne ne peut l’ouvrir.` : `✅ ${nommer(meta.titre)} est rangé dans ton coffre.`, id };
   } catch {
     await fs.rm(target, { force: true });
     return fail('Rien n’a été rangé : le serveur n’a pas pu écrire. Réessaie ; si ça recommence, dis-le à Claude.');
@@ -133,11 +139,13 @@ async function editDocNow(fields, ctx) {
     const [gone] = list.splice(i, 1);
     await writeAtomic(ctx.indexFile, JSON.stringify(list, null, 1));
     await fs.rm(path.join(ctx.dir, `${gone.id}.ckf`), { force: true });
-    return { ok: true, text: `« ${gone.titre} » est retiré du coffre.` };
+    return { ok: true, text: `${nommer(gone.titre)} est retiré du coffre.` };
   }
+  // A 🔒 paper keeps sealed texts: a title or note in clear is refused (the phone's script did not run).
+  if (list[i].e2e && isE2(list[i].titre) && (!isE2(fields.titre) || (String(fields.note || '').trim() && !isE2(fields.note)))) return fail('Rien n’a été changé : le titre n’a pas été chiffré sur ton téléphone. Ouvre le coffre puis réessaie.');
   try { list[i] = { ...list[i], ...parseMeta(fields, ctx.places, list[i]) }; } catch (e) { return fail(`Rien n’a été changé — ${e.message}.`); }
   await writeAtomic(ctx.indexFile, JSON.stringify(list, null, 1));
-  return { ok: true, text: `« ${list[i].titre} » est mis à jour.` };
+  return { ok: true, text: `${nommer(list[i].titre)} est mis à jour.` };
 }
 
 // One document, decrypted in memory for the person who passed Face ID. null = not found or unreadable.
@@ -153,3 +161,40 @@ export async function readDoc(id, ctx) {
 export async function readVerifier(file) {
   try { const v = JSON.parse(await fs.readFile(file, 'utf8')); return typeof v.verifier === 'string' ? v.verifier : null; } catch { return null; }
 }
+
+// The vault (v2): the vault key, WRAPPED by the password (the server cannot unwrap it). Set once, never replaced.
+const B64 = (s, n) => typeof s === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(s) && Buffer.from(s, 'base64').length === n;
+export const validVault = (v) => !!v && v.v === 2 && B64(v.salt, 16) && B64(v.iv, 12) && B64(v.wrapped, 48);
+export async function readVault(file) { return (await vaultState(file)).vault; }
+// absent = never created ; abime = present but unreadable or invalid (never offer to create a new one then).
+export async function vaultState(file) {
+  let raw;
+  try { raw = await fs.readFile(file, 'utf8'); } catch (e) { return { etat: e.code === 'ENOENT' ? 'absent' : 'abime', vault: null }; }
+  try { const v = JSON.parse(raw); if (validVault(v)) return { etat: 'ok', vault: v }; } catch { /* fall through */ }
+  return { etat: 'abime', vault: null };
+}
+// v1 → v2: a paper sealed with the first method (CKE1, title in clear) is replaced by the phone's v2 version
+// (same id): file sealed with the vault key, title and note sealed. Only for v1 papers, only once.
+export const replaceV1 = (fields, file, ctx) => serial(async () => {
+  const { etat, list } = await readIndex(ctx.indexFile);
+  if (etat === 'illisible') return fail('La liste de ton coffre est illisible : rien n’a été changé.');
+  const i = list.findIndex((d) => d.id === fields.id);
+  if (!isId(fields.id) || i < 0 || !list[i].e2e) return fail('Papier introuvable.');
+  if (!file || !file.data.subarray(0, 4).equals(SEALED2) || !isE2(fields.titre) || (fields.note && !isE2(fields.note))) return fail('Chiffrement incomplet : rien n’a été changé.');
+  const key = await readKey(ctx.keyFile);
+  const target = path.join(ctx.dir, `${fields.id}.ckf`);
+  let current;
+  try { current = decrypt(await fs.readFile(target), key); } catch { return fail('Ancien papier illisible : rien n’a été changé.'); }
+  if (!current.subarray(0, 4).equals(SEALED)) return fail('Ce papier est déjà converti.');
+  await writeAtomic(target, encrypt(file.data, key));
+  list[i] = { ...list[i], titre: fields.titre, note: fields.note || '', taille: file.data.length, sha256: crypto.createHash('sha256').update(file.data).digest('hex') };
+  await writeAtomic(ctx.indexFile, JSON.stringify(list, null, 1));
+  return { ok: true, text: 'Converti.' };
+});
+export const setVault = (vault, file) => serial(async () => {
+  if (!validVault(vault)) return { ok: false, text: 'Clé du coffre abîmée : rien n’a été enregistré. Recommence.' };
+  // Never over an existing file, even unreadable: replacing the wrapped key would lose every paper for good.
+  try { await fs.writeFile(file, JSON.stringify({ v: 2, salt: vault.salt, iv: vault.iv, wrapped: vault.wrapped }), { flag: 'wx', mode: 0o600 }); }
+  catch (e) { return { ok: false, text: e.code === 'EEXIST' ? 'Ton coffre a déjà un mot de passe : il ne peut pas être remplacé d’ici.' : 'Le serveur n’a pas pu écrire. Réessaie.' }; }
+  return { ok: true, text: 'Mot de passe du coffre créé.' };
+});

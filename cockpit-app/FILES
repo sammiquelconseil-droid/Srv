@@ -12,3 +12,5 @@ src/prospects.mjs
 app/coffre.mjs
 src/coffre.mjs
 app/coffreclient.mjs
+app/pdfjs.mjs
+app/pdfworker.mjs

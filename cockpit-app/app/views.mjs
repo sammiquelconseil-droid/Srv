@@ -1,6 +1,6 @@
 // Server-rendered pages. No script, no external resource: works on iPhone and desktop.
 import { ETAPES, trier, compter, aRelancer } from '../src/prospects.mjs';
-import { TYPES, filtrer, annee, compterPar, aFaire, libelle } from '../src/coffre.mjs';
+import { TYPES, filtrer, annee, compterPar, aFaire, libelle, isE2 } from '../src/coffre.mjs';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const eur = (c) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: c % 100 ? 2 : 0 }).format(c / 100);
 const date = (iso) => iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Paris' }) : '—';
@@ -184,6 +184,7 @@ export function chiffresPage({ data, prive, token, message }) {
 }
 
 const ACCES_JS = `
+try{indexedDB.deleteDatabase('cockpit-coffre')}catch(e){} // locked or not yet in: the vault key leaves this phone too
 const b2a=(s)=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
 const a2b=(b)=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
 const post=async(u,d)=>{const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(d||{})});const j=await r.json();if(!r.ok)throw new Error(j.erreur||'erreur');return j;};
@@ -365,7 +366,29 @@ export function prospectsPage({ list = [], token, message, sent = null, todayIso
 }
 
 // The safe: file a paper (photo or PDF) in two gestures, find it again by house or project, sorted by year.
-export function coffrePage({ index = [], places = [], filtre = {}, token, message, sent = null, distant = null, cle = true, todayIso, nonce = null, script = null, verif = '' }) {
+// The vault password panel: create it (first time), convert the first sealed papers (v1), or open the vault.
+// Hidden until the phone's script runs (so it can never be posted to the server); the password never leaves the phone.
+// « abime »: the wrapped key is missing or damaged while sealed papers exist: never offer to create a new one.
+function keyPanel({ vaultInfo = { etat: 'absent' }, verif, token, index = [] }) {
+  const v1 = index.filter((d) => d.e2e && !isE2(d.titre));
+  const v2 = index.some((d) => d.e2e && isE2(d.titre));
+  const mode = vaultInfo.etat === 'ok' ? 'ouvrir' : vaultInfo.etat === 'abime' || v2 ? 'abime' : v1.length || verif ? 'migrer' : 'creer';
+  const text = {
+    ouvrir: 'Tape ton mot de passe du coffre pour lire et ranger tes papiers 🔒.',
+    migrer: 'Nouvelle protection : tape une fois ton mot de passe du coffre habituel. Tes papiers 🔒 déjà rangés, leurs titres et leurs notes seront chiffrés à nouveau sur ton téléphone.',
+    creer: 'Choisis ton mot de passe du coffre : 12 caractères au moins, le plus sûr est 4 ou 5 mots au hasard (ex. « tortue bleu cerise orage »). Écris-le sur ta fiche de secours : il n’est gardé nulle part, et sans lui personne ne peut ouvrir tes papiers 🔒, pas même Claude.',
+    abime: 'La clé de ton coffre est introuvable ou abîmée sur le serveur. Ne crée rien et ne range rien : dis-le à Claude, elle est dans ta dernière sauvegarde.',
+  }[mode];
+  const rows = v1.map((d) => `<span data-v1-id="${esc(d.id)}" data-titre="${esc(d.titre)}" data-note="${esc(d.note || '')}"></span>`).join('');
+  const form = mode === 'abime' ? '' : `<form><div class="grid2"><div class="f"><label for="cpw1">Mot de passe du coffre</label><input id="cpw1" name="cpw1" type="password" autocomplete="off" required></div>${mode === 'creer' ? '<div class="f"><label for="cpw2">Retape-le</label><input id="cpw2" name="cpw2" type="password" autocomplete="off" required></div>' : ''}</div>
+   <button type="submit">${mode === 'creer' ? '🔑 Créer et ouvrir le coffre' : '🔓 Ouvrir le coffre'}</button></form>`;
+  return `<div id="coffre-etat" hidden data-vault="${vaultInfo.vault ? esc(JSON.stringify(vaultInfo.vault)) : ''}" data-verif="${esc(verif || '')}" data-v1="${esc(v1.map((d) => d.id).join(','))}">${rows}</div>
+  <section class="card" id="panneau-cle" data-mode="${mode}" data-jeton="${esc(token)}" hidden style="margin-top:12px"${mode === 'abime' ? ' role="alert"' : ''}><h2>${mode === 'abime' ? '⚠️ Clé du coffre introuvable' : mode === 'creer' ? '🔑 Créer ton mot de passe du coffre' : '🔑 Ouvrir le coffre'}</h2><p class="note" style="margin-top:-6px">${text}</p>
+   ${form}<div id="cle-msg" class="alert" hidden></div></section>
+  <p id="cle-ouverte" hidden class="note" style="margin-top:12px">🔓 Coffre ouvert sur ce téléphone (il se referme seul après 15 min). <button type="button" class="ghost" id="verrouiller-coffre">🔒 Refermer maintenant</button></p>`;
+}
+
+export function coffrePage({ index = [], places = [], filtre = {}, token, message, sent = null, distant = null, cle = true, todayIso, nonce = null, script = null, verif = '', vaultInfo = { etat: 'absent' } }) {
   const counts = compterPar(index);
   const docs = filtrer(index, filtre).filter((d) => !filtre.afaire || d.afaire === 'a_faire');
   const todo = aFaire(index).length;
@@ -373,7 +396,8 @@ export function coffrePage({ index = [], places = [], filtre = {}, token, messag
   // p = prefix of the element ids only (one form per paper on the page); names stay the same. `back` = what was typed, re-shown after a refusal.
   const metaFields = (p, d = {}, back = null) => {
     const v = (name, stored) => (back && name in back ? back[name] : stored ?? '');
-    const inp = (name, label, value, { type = 'text', max, ph = '' } = {}) => `<div class="f"><label for="${p}${name}">${label}</label><input id="${p}${name}" name="${name}" type="${type}" value="${esc(v(name, value))}"${max ? ` maxlength="${max}"` : ''} placeholder="${esc(ph)}" autocomplete="off"></div>`;
+    // A sealed title or note is never put in the page as a value: the phone fills it once the vault is open.
+    const inp = (name, label, value, { type = 'text', max, ph = '' } = {}) => { const val = v(name, value); const sealed = isE2(val); return `<div class="f"><label for="${p}${name}">${label}</label><input id="${p}${name}" name="${name}" type="${type}" value="${sealed ? '' : esc(val)}"${sealed ? ` data-e2v="${esc(val)}" data-aad="${esc(d.id)}:${name}"` : ''}${max ? ` maxlength="${max}"` : ''} placeholder="${esc(sealed ? '🔒 ouvre le coffre pour lire' : ph)}" autocomplete="off"></div>`; };
     const sel = (name, label, list, value) => { const val = v(name, value); return `<div class="f"><label for="${p}${name}">${label}</label><select id="${p}${name}" name="${name}">${list.map(([key, ic, l]) => `<option value="${esc(key)}"${val === key ? ' selected' : ''}>${ic} ${esc(l)}</option>`).join('')}</select></div>`; };
     return `${inp('titre', 'Titre', d.titre, { max: 80, ph: 'ex. Bail de la maison, devis toiture' })}
     <div class="grid2">${sel('rattache', 'Rangé dans', places, d.rattache || filtre.r || 'perso')}${sel('type', 'Type', TYPES, d.type || 'facture')}</div>
@@ -387,9 +411,12 @@ export function coffrePage({ index = [], places = [], filtre = {}, token, messag
   const item = (d) => {
     const [ic, tl] = typeOf[d.type] || ['📄', 'Autre'];
     const badges = `${d.afaire === 'a_faire' ? '<span class="badge warn">📌 À faire</span>' : ''}${d.echeance && d.afaire !== 'fait' ? `<span class="badge ${soon(d.echeance) ? 'bad' : 'info'}">⏰ ${esc(fmt(d.echeance))}</span>` : ''}`;
-    return `<li class="doc"><span class="ic" aria-hidden="true">${ic}</span><div style="flex:1;min-width:0"><a class="t" href="/coffre/voir/${esc(d.id)}">${d.e2e ? '🔒 ' : ''}${esc(d.titre)}</a>${badges}
-      <div class="m">${esc(tl)}${d.date ? ` · ${esc(fmt(d.date))}` : ''} · ${esc(libelle(places, d.rattache))}${d.note ? ` · ${esc(d.note)}` : ''}</div>
-      <details><summary>Modifier</summary><form method="post" action="/coffre/modifier">${tok}<input type="hidden" name="id" value="${esc(d.id)}">${metaFields(`e${d.id}-`, d)}<button type="submit">Enregistrer</button></form>
+    const sealedT = isE2(d.titre), sealedN = isE2(d.note);
+    const title = sealedT ? `<span data-e2t="${esc(d.titre)}" data-aad="${esc(d.id)}:titre">Papier chiffré</span>` : esc(d.titre);
+    const note = d.note ? ` · ${sealedN ? `<span data-e2t="${esc(d.note)}" data-aad="${esc(d.id)}:note">note chiffrée</span>` : esc(d.note)}` : '';
+    return `<li class="doc"><span class="ic" aria-hidden="true">${ic}</span><div style="flex:1;min-width:0"><a class="t" href="/coffre/voir/${esc(d.id)}">${d.e2e ? '🔒 ' : ''}${title}</a>${badges}
+      <div class="m">${esc(tl)}${d.date ? ` · ${esc(fmt(d.date))}` : ''} · ${esc(libelle(places, d.rattache))}${note}</div>
+      <details><summary>Modifier</summary><form method="post" action="/coffre/modifier"${d.e2e ? ` data-e2e="1" data-id="${esc(d.id)}"` : ''}>${tok}<input type="hidden" name="id" value="${esc(d.id)}">${metaFields(`e${d.id}-`, d)}<button type="submit">Enregistrer</button></form>
        <form method="post" action="/coffre/modifier" style="margin-top:12px">${tok}<input type="hidden" name="id" value="${esc(d.id)}"><input type="hidden" name="supprimer" value="1"><label style="display:flex;gap:8px;align-items:center;font-size:15px"><input type="checkbox" name="sur" value="1" required style="width:22px;height:22px;min-height:0">Oui, le retirer du coffre</label><button type="submit" class="danger">Retirer</button></form></details></div></li>`;
   };
   const years = [...new Set(docs.map(annee))];
@@ -401,25 +428,24 @@ export function coffrePage({ index = [], places = [], filtre = {}, token, messag
   const here = filtre.r ? libelle(places, filtre.r) : null;
   const copies = distant && index.length ? `<span class="chip">☁️ ${Math.min(distant, index.length)}/${index.length} copiés hors du serveur</span>` : '';
   return layout('Coffre', '/coffre', `<section class="hero"><h1>🗄 Mon coffre</h1>
-   <p class="sub">Tes papiers, chiffrés sur ton serveur. Ils s’ouvrent seulement ici, après Face ID. Rien ne va sur GitHub en clair, rien dans Telegram, rien chez une IA.</p>
+   <p class="sub">Les papiers 🔒, leurs titres et leurs notes sont chiffrés sur ton iPhone avant d’être envoyés. Le serveur et les sauvegardes ne peuvent pas les lire tant que ton mot de passe du coffre est long. Restent visibles : le type, le rangement et les dates, pour tes rappels.</p>
    <div class="chips"><span class="chip">📄 ${index.length} papier${index.length > 1 ? 's' : ''}</span>${todo ? `<span class="chip">📌 ${todo} à faire</span>` : ''}${copies}</div></section>
   ${cle ? '' : '<div class="alert warn">Le coffre s’ouvre après la prochaine mise à jour du serveur (/maj dans le bot). Tu pourras alors ranger tes papiers.</div>'}
   ${message ? `<div class="alert ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}</div>` : ''}
+  ${keyPanel({ vaultInfo, verif, token, index })}
   <div class="cards" style="margin-top:12px">
    <section class="card wide"><details${!index.length || (message && !message.ok && sent) ? ' open' : ''}><summary style="cursor:pointer;font-weight:700;font-size:17px;list-style:none">➕ Ranger un papier${here ? ` dans ${esc(here)}` : ''}</summary>
-    <form method="post" action="/coffre/ajouter" enctype="multipart/form-data" style="margin-top:10px" id="form-ranger" data-verif="${esc(verif)}">${tok}
+    <form method="post" action="/coffre/ajouter" enctype="multipart/form-data" style="margin-top:10px" id="form-ranger">${tok}
      <div class="f"><label for="fichier">Photo ou PDF (15 Mo maximum)</label><input id="fichier" name="fichier" type="file" accept="application/pdf,image/jpeg,image/png,image/heic" required></div>
      <p class="note" style="margin-top:0">Pour un papier : « Choisir un fichier », puis <b>⋯</b> en haut à droite, puis <b>Scanner des documents</b>. L’iPhone redresse la page tout seul.</p>
      ${metaFields('n-', {}, sent)}
-     <label style="display:flex;gap:10px;align-items:flex-start;font-size:15px;margin:12px 0 4px"><input type="checkbox" id="n-sensible" name="sensible" value="1" style="width:22px;height:22px;min-height:0;flex:none;margin-top:2px"><span><b>🔒 Très sensible</b> (identité, RIB, santé) : chiffré sur ton iPhone avec ton mot de passe du coffre, avant l’envoi. Le serveur ne peut pas le lire.</span></label>
-     <div id="pw-wrap" hidden><div class="grid2"><div class="f"><label for="pw1">Mot de passe du coffre</label><input id="pw1" name="pw1" type="password" autocomplete="off" minlength="8"></div>${verif ? '' : '<div class="f"><label for="pw2">Retape-le (première fois)</label><input id="pw2" name="pw2" type="password" autocomplete="off"></div>'}</div>
-      <p class="note" style="margin-top:0">${verif ? 'Le même mot de passe que pour tes autres papiers « très sensibles ».' : 'Choisis-le maintenant, une fois pour toutes, et écris-le sur ta fiche de secours. Perdu = ces papiers sont perdus, même pour Claude.'}</p></div>
+     <label style="display:flex;gap:10px;align-items:flex-start;font-size:15px;margin:12px 0 4px"><input type="checkbox" id="n-sensible" name="sensible" value="1" checked style="width:22px;height:22px;min-height:0;flex:none;margin-top:2px"><span><b>🔒 Protégé comme iCloud</b> (conseillé) : le papier, son titre et sa note sont chiffrés sur ton iPhone avec ton mot de passe du coffre. Décoche seulement pour un papier sans importance.</span></label>
      <div id="pw-msg" class="alert" hidden></div>
      <button type="submit">🔐 Ranger dans le coffre</button></form></details></section>
    <section class="card wide"><div class="chips f" style="margin-bottom:10px">${chips}</div>${list}</section>
    <section class="card wide"><h2>💡 Bon à savoir</h2><ul class="plain">
-    <li>Pièce d’identité, RIB, papiers de santé : coche <b>🔒 Très sensible</b>. Le papier est alors chiffré sur ton iPhone avec ton mot de passe du coffre, que le serveur ne reçoit jamais : même quelqu’un qui prendrait le serveur ou une sauvegarde ne pourrait pas le lire. C’est le même principe que la protection avancée d’iCloud.</li>
-    <li>Ce mot de passe du coffre : 8 caractères au moins, écrit sur ta fiche de secours. Il n’est stocké nulle part. Perdu = les papiers « très sensibles » sont perdus pour de bon.</li>
+    <li>Ton mot de passe du coffre ne quitte jamais ton iPhone et n’est gardé nulle part : même quelqu’un qui prendrait le serveur ou une sauvegarde ne pourrait rien lire. Écris-le sur ta fiche de secours : perdu = les papiers 🔒 sont perdus pour de bon.</li>
+    <li>Une fois tapé, le coffre reste ouvert 15 minutes sur ce téléphone, puis se referme tout seul (aussi quand tu touches « Verrouiller »).</li>
     <li>Factures et papiers de ta micro-entreprise : garde-les 10 ans (règle des papiers de comptabilité).</li>
     <li>Une date limite (fin de contrat, devis à signer, garantie) : le bot te prévient 30 jours avant, 7 jours avant et le jour même, sans dire de quel papier il s’agit.</li>
     <li>Chaque papier est aussi copié hors du serveur, chiffré avec ta clé de sauvegarde (celle de ta fiche de secours). Un papier retiré ici disparaît du serveur ; sa copie chiffrée reste dans les sauvegardes.</li></ul></section>
@@ -427,19 +453,22 @@ export function coffrePage({ index = [], places = [], filtre = {}, token, messag
 }
 
 // One paper, shown inside the app (the app opened from the home screen has no back button: never a new tab).
-export function coffreViewPage({ doc, places, nonce = null, script = null }) {
+export function coffreViewPage({ doc, places, nonce = null, script = null, token = '', vaultInfo = { etat: 'absent' }, verif = '', index = [] }) {
   const t = TYPES.find(([k]) => k === doc.type) || ['autre', '📄', 'Autre'];
   const src = `/coffre/f/${esc(doc.id)}`;
-  if (doc.e2e) return layout(doc.titre, '/coffre', `<p style="margin:0 0 10px"><a class="btn" href="/coffre?r=${encodeURIComponent(doc.rattache)}">← Retour au coffre</a></p>
-  <section class="card"><h2>🔒 ${esc(doc.titre)}</h2><p class="sub" style="margin-top:-6px">${esc(t[2])} · ${esc(libelle(places, doc.rattache))}${doc.date ? ` · ${esc(date(doc.date))}` : ''} · chiffré sur ton iPhone</p>
-   <form id="form-ouvrir" data-src="${src}" data-mime="${esc(doc.mime)}"><div class="f"><label for="pw">Mot de passe du coffre</label><input id="pw" name="pw" type="password" autocomplete="off" required></div><button type="submit">🔓 Ouvrir ici</button></form>
-   <div id="pw-msg" class="alert" hidden></div><div id="papier" hidden></div>
-   <p class="note">Le papier est déchiffré dans ton téléphone, le temps de le lire. Rien n’est envoyé ni gardé.</p></section>`, { nonce, script });
-  const view = doc.mime === 'application/pdf'
-    ? `<iframe src="${src}" title="${esc(doc.titre)}" style="width:100%;height:70vh;border:0;border-radius:12px;background:#fff"></iframe>
-       <p class="note">Le document ne s’affiche pas en entier ? Touche « Ouvrir en grand », puis glisse depuis le bord gauche de l’écran pour revenir.</p>`
-    : `<img src="${src}" alt="${esc(doc.titre)}" style="max-width:100%;border-radius:12px;display:block">`;
-  return layout(doc.titre, '/coffre', `<p style="margin:0 0 10px"><a class="btn" href="/coffre?r=${encodeURIComponent(doc.rattache)}">← Retour au coffre</a></p>
-  <section class="card"><h2>${t[1]} ${esc(doc.titre)}</h2><p class="sub" style="margin-top:-6px">${esc(t[2])} · ${esc(libelle(places, doc.rattache))}${doc.date ? ` · ${esc(date(doc.date))}` : ''}</p>
-   ${view}<p><a class="btn" href="${src}">🔍 Ouvrir en grand</a></p></section>`);
+  const sealedT = isE2(doc.titre);
+  const name = `${String(sealedT ? 'papier' : doc.titre).replace(/[^\p{L}\p{N} ._-]/gu, '').trim().slice(0, 60) || 'papier'}.${doc.ext || 'pdf'}`;
+  const back = `<a class="btn" href="/coffre?r=${encodeURIComponent(doc.rattache)}">← Retour au coffre</a>`;
+  const title = sealedT ? `<span id="titre-papier" data-e2t="${esc(doc.titre)}" data-aad="${esc(doc.id)}:titre">Papier chiffré</span>` : `<span id="titre-papier">${esc(doc.titre)}</span>`;
+  // Before a sealed paper leaves the vault: what keeps the iCloud level, what does not.
+  const warn = doc.e2e ? `<div id="avertir" class="alert warn" hidden><b>Ce papier va sortir du coffre.</b> Hors du coffre, il n’est plus protégé par ton mot de passe. Pour garder le niveau iCloud :
+     <ul style="margin:8px 0 8px 18px;padding:0"><li><b>Enregistrer dans Fichiers › iCloud Drive</b>, avec la protection avancée d’iCloud activée (Réglages › ton nom › iCloud › Protection avancée des données).</li><li>Ou l’envoyer par <b>Messages, WhatsApp ou Signal</b> (chiffrés de bout en bout).</li><li>Évite Mail, l’impression dans un lieu public et les applis que tu ne connais pas.</li></ul>
+     <button type="button" id="avertir-ok">J’ai compris, continuer</button> <button type="button" class="ghost" id="avertir-non">Annuler</button></div>` : '';
+  return layout(sealedT ? 'Papier chiffré' : doc.titre, '/coffre', `<p style="margin:0 0 10px">${back}</p>
+  ${doc.e2e ? keyPanel({ vaultInfo, verif, token, index }) : ''}
+  <section class="card" style="margin-top:12px"><h2>${doc.e2e ? '🔒' : t[1]} ${title}</h2><p class="sub" style="margin-top:-6px">${esc(t[2])} · ${esc(libelle(places, doc.rattache))}${doc.date ? ` · ${esc(date(doc.date))}` : ''}${doc.e2e ? ' · chiffré sur ton iPhone' : ''}</p>
+   <div id="papier" data-id="${esc(doc.id)}" data-src="${src}" data-mime="${esc(doc.mime)}" data-name="${esc(name)}" data-e2e="${doc.e2e ? '1' : '0'}"${doc.e2e ? ' hidden' : ''}>Chargement…</div>
+   <button type="button" id="partager" hidden style="width:100%">📤 Enregistrer ou envoyer</button>${warn}
+   <p class="note">${doc.e2e ? 'Le papier est déchiffré dans ton téléphone, le temps de le lire. ' : ''}« Enregistrer ou envoyer » ouvre le menu de partage de l’iPhone. Rien ne part sans ton choix.</p></section>
+  <p style="margin-top:14px">${back}</p>`, { nonce, script });
 }

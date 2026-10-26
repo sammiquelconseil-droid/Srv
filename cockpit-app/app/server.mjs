@@ -7,7 +7,7 @@ import { upcomingDeadlines } from '../src/echeancier.mjs';
 import { budget } from '../src/budget.mjs';
 import { parseProspectsForm } from '../src/prospects.mjs';
 import { rattachements, compterPar } from '../src/coffre.mjs';
-import { addDoc, editDoc, readDoc, readIndex, readKey, readVerifier, parseMultipart, MAX_FILE } from './coffre.mjs';
+import { addDoc, editDoc, readDoc, readIndex, readKey, readVerifier, vaultState, setVault, replaceV1, parseMultipart, MAX_FILE } from './coffre.mjs';
 import crypto from 'node:crypto';
 import { todayPage, patrimoinePage, chiffresPage, accesPage, errorPage, sauvegardesPage, dossierPage, prospectsPage, coffrePage, coffreViewPage } from './views.mjs';
 import { emptyDossier, parseDossierForm, removeBien, writeDossier, readDossier, parseEuros } from './dossier.mjs';
@@ -28,9 +28,13 @@ const CODE_FILE = path.join(DATA_DIR, 'acces-code.json');
 const COFFRE_DIR = process.env.COFFRE_DIR || path.join(STATE, 'coffre');
 const COFFRE_INDEX = path.join(DATA_DIR, 'coffre.json');
 const COFFRE_KEY = process.env.COFFRE_KEY || '/etc/cockpit/coffre.key';
-const COFFRE_VERIF = path.join(DATA_DIR, 'coffre-verif.json');
+const COFFRE_VERIF = path.join(DATA_DIR, 'coffre-verif.json'); // v1 (first sealed papers), read only now
+const COFFRE_VAULT = path.join(DATA_DIR, 'coffre-vault.json'); // v2: the vault key wrapped by the password
 // The script that seals « très sensible » papers in Safari, inlined in the Coffre pages with a nonce.
 const CLIENT_JS = fsSync.readFileSync(new URL('./coffreclient.mjs', import.meta.url), 'utf8');
+// PDF.js 4.10.38 (Mozilla, Apache-2.0, npm integrity checked) draws every page of a PDF: the iPhone shows only the first
+// page of a PDF placed in a page. Served by the Cockpit itself, behind Face ID; read once at start.
+const PDFJS = { '/coffre/pdfjs.mjs': fsSync.readFileSync(new URL('./pdfjs.mjs', import.meta.url)), '/coffre/pdfworker.mjs': fsSync.readFileSync(new URL('./pdfworker.mjs', import.meta.url)) };
 const PROSPECTS = process.env.PROSPECTS_FILE || path.join(DATA_DIR, 'prospects.json'); // niveau 3: server only, in the encrypted backups
 const KEY_FILE = path.join(STATE, 'cle-a-remettre'); // written by root (nouvelle clé), owned by cockpit, shown here until Sam confirms
 const KEY_TESTED = path.join(STATE, 'cle-testee'); // marker (no secret): the pending key opened the latest backup from a paste
@@ -84,7 +88,7 @@ const SECURITY = {
   'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'cache-control': 'no-store',
 };
 // Coffre pages: the sealing script (nonce) may fetch from this site and show a decrypted paper from memory (blob:).
-const withScript = (nonce) => ({ ...SECURITY, 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; img-src 'self' blob:; frame-src blob:; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` });
+const withScript = (nonce) => ({ ...SECURITY, 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; img-src 'self' blob:; script-src 'nonce-${nonce}' 'self'; worker-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` });
 const withNonce = (nonce) => ({ ...SECURITY, 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` });
 const JSONH = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
 const json = (res, code, obj) => { res.writeHead(code, JSONH); res.end(JSON.stringify(obj)); };
@@ -122,7 +126,7 @@ export async function render(url, opts = {}) {
     const filtre = { r: places.some(([k]) => k === q.r) ? q.r : '', afaire: q.afaire === '1' };
     const distant = ((await readJson(path.join(STATE, 'coffre-distant.json'))) || {}).ids;
     const nonce = crypto.randomBytes(16).toString('base64url');
-    return [200, coffrePage({ index: list, places, filtre, token: FORM_TOKEN, message: opts.message, sent: opts.message && !opts.message.ok ? opts.fields : null, distant: Array.isArray(distant) ? distant.filter((id) => list.some((d) => d.id === id)).length : null, cle: !!(await readKey(COFFRE_KEY)), todayIso: asOf, nonce, script: CLIENT_JS, verif: (await readVerifier(COFFRE_VERIF)) || '' }), withScript(nonce)];
+    return [200, coffrePage({ index: list, places, filtre, token: FORM_TOKEN, message: opts.message, sent: opts.message && !opts.message.ok ? opts.fields : null, distant: Array.isArray(distant) ? distant.filter((id) => list.some((d) => d.id === id)).length : null, cle: !!(await readKey(COFFRE_KEY)), todayIso: asOf, nonce, script: CLIENT_JS, verif: (await readVerifier(COFFRE_VERIF)) || '', vaultInfo: await vaultState(COFFRE_VAULT) }), withScript(nonce)];
   }
   if (url === '/dossier') return [200, dossierPage({ data, token: FORM_TOKEN, message: opts.message, vide, sent: opts.message && !opts.message.ok ? opts.fields : null, dernieres: Object.fromEntries(summary.biens.filter((b) => b.end).map((b) => [b.id, b.end])) })];
   if (url === '/prospects') {
@@ -240,18 +244,34 @@ export async function handleUpload(req, res) {
   const [, html, headers] = await render('/coffre', { message, fields, query: {} });
   res.writeHead(message.ok ? 200 : 400, headers || SECURITY); res.end(html);
 }
+// First time: the vault key, already wrapped by the password on the phone, is kept here (set once).
+export async function handleVault(req, res) {
+  let body = null;
+  try { body = JSON.parse(await readBody(req, 4096)); } catch { return json(res, 400, { ok: false, text: 'Demande illisible.' }); }
+  if (!sameSite(req) || !body || body.jeton !== FORM_TOKEN) return json(res, 400, { ok: false, text: 'Page expirée : recharge-la et recommence.' });
+  try { const r = await setVault(body.vault, COFFRE_VAULT); if (r.ok) await askBackup(); return json(res, r.ok ? 200 : 400, r); }
+  catch { return json(res, 500, { ok: false, text: 'Le serveur n’a pas pu écrire. Réessaie.' }); }
+}
+export async function handleReplace(req, res) {
+  try {
+    const { fields, file } = parseMultipart(await readRaw(req, MAX_FILE + 64 * 1024), req.headers['content-type']);
+    if (!sameSite(req) || fields.jeton !== FORM_TOKEN) return json(res, 400, { ok: false, text: 'Page expirée.' });
+    const r = await replaceV1(fields, file, await coffreCtx());
+    if (r.ok) await askBackup();
+    return json(res, r.ok ? 200 : 400, r);
+  } catch { return json(res, 400, { ok: false, text: 'Demande illisible.' }); }
+}
 export async function actCoffre(fields) {
   try { const r = await editDoc(fields, await coffreCtx()); if (r.ok) await askBackup(); return r; }
   catch { return { ok: false, text: 'Rien n’a été changé : le serveur n’a pas pu écrire.' }; }
 }
 // The page around one paper (title, back button, the paper in a frame or as a picture). Nothing decrypted here.
 export async function viewDoc(id) {
-  const { list } = await readIndex(COFFRE_INDEX);
+  const { list } = await readIndex(COFFRE_INDEX); // `list` also tells the key panel which mode to show
   const doc = /^[a-f0-9]{24}$/.test(String(id)) && list.find((d) => d.id === id);
   if (!doc) return [404, errorPage('Papier introuvable.')];
   const nonce = crypto.randomBytes(16).toString('base64url');
-  const html = coffreViewPage({ doc, places: rattachements((await readDossier(DATA)).data), nonce, script: doc.e2e ? CLIENT_JS : null });
-  return [200, html, doc.e2e ? withScript(nonce) : { ...SECURITY, 'content-security-policy': SECURITY['content-security-policy'].replace("frame-ancestors 'none'", "frame-src 'self'; frame-ancestors 'none'") }];
+  return [200, coffreViewPage({ doc, places: rattachements((await readDossier(DATA)).data), nonce, script: CLIENT_JS, token: FORM_TOKEN, vaultInfo: await vaultState(COFFRE_VAULT), verif: (await readVerifier(COFFRE_VERIF)) || '', index: list }), withScript(nonce)];
 }
 // Opening a paper: decrypted in memory, shown in the browser. Only PDF and photos ever get here (checked at filing).
 export async function serveDoc(id) {
@@ -266,7 +286,7 @@ export async function serveDoc(id) {
 
 export async function handlePost(req, res, pathname) {
   let body;
-  try { body = await readBody(req, pathname.startsWith('/dossier') || pathname === '/prospects' ? 65536 : 8192); } catch { res.writeHead(413, SECURITY); return res.end(errorPage('Trop de données.')); }
+  try { body = await readBody(req, pathname.startsWith('/dossier') || pathname === '/prospects' || pathname === '/coffre/modifier' ? 65536 : 8192); } catch { res.writeHead(413, SECURITY); return res.end(errorPage('Trop de données.')); }
   const fields = Object.fromEntries(new URLSearchParams(body));
   const page = pathname.startsWith('/sauvegardes') ? '/sauvegardes' : pathname.startsWith('/dossier') ? '/dossier' : pathname === '/prospects' ? '/prospects' : pathname === '/coffre/modifier' ? '/coffre' : '/mes-chiffres';
   let message;
@@ -295,11 +315,14 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
       if (auth && !currentSession(req)) { res.writeHead(303, { location: '/acces', 'cache-control': 'no-store', 'set-cookie': `${COOKIE}=; Path=/; Max-Age=0` }); return res.end(); }
       if (req.method === 'POST' && pathname === '/deconnexion') { sessions.drop(parseCookies(req.headers.cookie)[COOKIE]); res.writeHead(303, { location: '/acces', 'set-cookie': `${COOKIE}=; Path=/; Max-Age=0` }); return res.end(); }
       if (req.method === 'POST' && pathname === '/coffre/ajouter') return await handleUpload(req, res);
+      if (req.method === 'POST' && pathname === '/coffre/cle') return await handleVault(req, res);
+      if (req.method === 'POST' && pathname === '/coffre/remplacer') return await handleReplace(req, res);
       if (req.method === 'POST' && (pathname === '/mes-chiffres' || pathname === '/dossier' || pathname === '/dossier/retirer' || pathname === '/prospects' || pathname === '/coffre/modifier' || pathname.startsWith('/sauvegardes/'))) return await handlePost(req, res, pathname);
       if (req.method === 'GET' && pathname.startsWith('/coffre/voir/')) {
         const [vc, vh, vhead] = await viewDoc(pathname.slice('/coffre/voir/'.length));
         res.writeHead(vc, vhead || SECURITY); return res.end(vh);
       }
+      if (req.method === 'GET' && PDFJS[pathname]) { res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'private, max-age=2592000, immutable', 'x-content-type-options': 'nosniff' }); return res.end(PDFJS[pathname]); }
       if (req.method === 'GET' && pathname.startsWith('/coffre/f/')) {
         const doc = await serveDoc(pathname.slice('/coffre/f/'.length));
         if (!doc) { res.writeHead(404, SECURITY); return res.end(errorPage('Papier introuvable.')); }

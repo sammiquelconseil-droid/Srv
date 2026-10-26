@@ -21,6 +21,16 @@ const text = (v, champ, max, required = false) => {
   if (t.length > max) fail(champ, `trop long (${max} caractères maximum)`);
   return t;
 };
+// A title or note sealed on the phone (« e2: » + base64): kept as is, never read here.
+export const E2_RE = /^e2:[A-Za-z0-9+/]+={0,2}$/;
+export const isE2 = (v) => E2_RE.test(String(v || ''));
+const sealedOr = (v, champ, max, maxSealed, required = false) => {
+  const t = String(v ?? '').trim();
+  if (t.startsWith('e2:')) { if (!isE2(t) || t.length > maxSealed) fail(champ, 'chiffrement abîmé, recommence'); return t; }
+  return text(t, champ, max, required);
+};
+// How a paper is named in a message: never the sealed text.
+export const nommer = (titre) => (isE2(titre) ? 'Ton papier 🔒' : `« ${titre} »`);
 const isDate = (t) => /^\d{4}-\d{2}-\d{2}$/.test(t) && new Date(t + 'T00:00:00Z').toISOString().slice(0, 10) === t;
 const optDate = (v, champ) => { const t = String(v ?? '').trim(); if (!t) return null; if (!isDate(t)) fail(champ, 'date impossible (choisis-la avec le calendrier)'); return t; };
 
@@ -41,9 +51,9 @@ export function parseMeta(fields, places, current = {}) {
   const afaire = String(fields.afaire || '');
   if (!['', 'a_faire', 'fait'].includes(afaire)) fail('à faire', 'choix inconnu');
   return {
-    titre: text(fields.titre, 'titre', 80, true), rattache, type,
+    titre: sealedOr(fields.titre, 'titre', 80, 1500, true), rattache, type,
     date: optDate(fields.date, 'date du document'), echeance: optDate(fields.echeance, 'date limite'),
-    afaire, note: text(fields.note, 'note', 200),
+    afaire, note: sealedOr(fields.note, 'note', 200, 2500),
   };
 }
 
