@@ -317,7 +317,23 @@ const CoffreE2E = (() => {
       } catch { fail('Papier illisible avec cette clé. Rien n’a été ouvert.'); }
     });
   }
-  if (typeof document !== 'undefined') { wireList(); wireView(); }
+  // The password hint: refused if it opens the safe (tried here, on the phone; the server never sees the password).
+  function wireIndice() {
+    const form = $('form-indice'); if (!form) return;
+    const msg = $('indice-msg');
+    let checked = false;
+    form.addEventListener('submit', async (ev) => {
+      if (checked) return;
+      const { vault } = state(), t = form.indice.value.trim();
+      if (!vault || !t) return;
+      ev.preventDefault();
+      say(msg, 'Vérification que l’indice n’est pas ton mot de passe…', false);
+      const opens = await unlockVault(vault, t).then((k) => !!k).catch(() => false);
+      if (opens) return say(msg, 'C’est ton mot de passe lui-même : écris plutôt une phrase qui t’y fait penser. Rien n’a été enregistré.');
+      checked = true; form.submit();
+    });
+  }
+  if (typeof document !== 'undefined') { wireList(); wireView(); wireIndice(); }
   return { detect, createVault, unlockVault, sealBytes, openBytes, sealText, openText, newId, isSealed, isV1, isV2, encrypt, decrypt, makeVerifier, checkVerifier, b64, unb64, MIMES, ITER, KEEP_MS, MIN_PW };
 })();
 if (typeof globalThis !== 'undefined') globalThis.CoffreE2E = CoffreE2E;

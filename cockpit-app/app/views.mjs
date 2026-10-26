@@ -1,6 +1,7 @@
 // Server-rendered pages. No script, no external resource: works on iPhone and desktop.
 import { ETAPES, trier, compter, aRelancer } from '../src/prospects.mjs';
 import { TYPES, filtrer, annee, compterPar, aFaire, libelle, isE2 } from '../src/coffre.mjs';
+import { cleTache } from '../src/faits.mjs';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const eur = (c) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: c % 100 ? 2 : 0 }).format(c / 100);
 const date = (iso) => iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Paris' }) : '—';
@@ -46,7 +47,7 @@ ul.plain,ol.plain{list-style:none;padding:0;margin:0}ul.plain li,ol.plain li{pad
 .when{display:inline-block;font-size:12.5px;font-weight:700;padding:3px 10px;border-radius:999px;margin-bottom:6px;letter-spacing:.1px}
 .when.now{color:#fff;background:var(--accent)}.when.soon{color:var(--warn);background:var(--warnbg)}.when.later{color:var(--ink2);background:var(--bg)}
 li.task{padding:14px 0}li.task .t{font-weight:700;font-size:16px;line-height:1.35;display:block}li.task .d{color:var(--ink2);font-size:14px;margin:6px 0 0;line-height:1.5}li.task .w{font-size:13px;color:var(--ink3);margin:6px 0 0}
-li.task details{margin-top:6px}li.task summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600;list-style:none}li.task summary::-webkit-details-marker{display:none}li.task summary::after{content:' ▾'}li.task details[open] summary::after{content:' ▴'}
+li.task details{margin-top:6px}li.task form.fait{margin:8px 0 0}li.task form.fait button{min-height:44px;padding:8px 14px;font-size:15px}details.faites{margin-top:12px}details.faites summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:14px}li.task summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600;list-style:none}li.task summary::-webkit-details-marker{display:none}li.task summary::after{content:' ▾'}li.task details[open] summary::after{content:' ▴'}
 .proj{font-size:12.5px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.6px;margin:14px 0 2px}.proj:first-child{margin-top:0}
 .dl{display:flex;gap:12px;align-items:flex-start}.dl .dt{flex:0 0 auto;min-width:64px;text-align:center;background:var(--bg);border-radius:12px;padding:6px 8px;line-height:1.15}.dl .dt b{display:block;font-size:19px;letter-spacing:-.3px}.dl .dt span{font-size:11.5px;color:var(--ink2);text-transform:uppercase;letter-spacing:.4px}
 form .f{display:flex;flex-direction:column;gap:4px;margin:10px 0}form label{font-weight:600;font-size:14px;color:var(--ink2)}
@@ -88,13 +89,22 @@ export function parseTask(line) {
   const urgence = /maintenant|aujourd/i.test(quand) ? 'now' : /avant le|cette semaine|demain/i.test(quand) ? 'soon' : 'later';
   return { quand, geste, reste, pourquoi, urgence };
 }
-const taskHtml = (line) => {
+const taskHtml = (line, token) => {
   const t = parseTask(line);
   const detail = !t.reste ? '' : t.reste.length <= 170 ? `<p class="d">${esc(t.reste)}</p>` : `<details><summary>Le détail</summary><p class="d">${esc(t.reste)}</p></details>`;
-  return `<li class="task">${t.quand ? `<span class="when ${t.urgence}">${esc(t.quand)}</span>` : ''}<span class="t">${esc(t.geste)}</span>${detail}${t.pourquoi ? `<p class="w">Pourquoi toi · ${esc(t.pourquoi)}</p>` : ''}</li>`;
+  const fait = token ? `<form method="post" action="/fait" class="fait"><input type="hidden" name="jeton" value="${esc(token)}"><input type="hidden" name="cle" value="${cleTache(line)}"><button type="submit" class="ghost">✅ C’est fait</button></form>` : '';
+  return `<li class="task">${t.quand ? `<span class="when ${t.urgence}">${esc(t.quand)}</span>` : ''}<span class="t">${esc(t.geste)}</span>${detail}${t.pourquoi ? `<p class="w">Pourquoi toi · ${esc(t.pourquoi)}</p>` : ''}${fait}</li>`;
+};
+// Ticked by mistake: one tap puts it back.
+const faitesHtml = (faites, token, auto = []) => {
+  const n = (faites || []).length + (auto || []).length;
+  if (!n || !token) return '';
+  const vus = (auto || []).map((f) => `<li class="task"><span class="t">✔︎ ${esc(parseTask(f.ligne).geste)}</span><p class="w">Vu tout seul par le Cockpit</p></li>`).join('');
+  const coches = (faites || []).map((f) => `<li class="task"><span class="t">✅ ${esc(parseTask(f.ligne).geste)}</span><form method="post" action="/fait/annuler" class="fait"><input type="hidden" name="jeton" value="${esc(token)}"><input type="hidden" name="cle" value="${f.cle}"><button type="submit" class="ghost">↩︎ Remettre dans la liste</button></form></li>`).join('');
+  return `<details class="faites"><summary>Déjà faits (${n})</summary><ul class="plain">${vus}${coches}</ul></details>`;
 };
 
-export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [], alertes, attentes = null, budget = null }) {
+export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [], alertes, attentes = null, budget = null, token = '' }) {
   const d = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
   const h = Number(now.toLocaleString('fr-FR', { hour: 'numeric', hour12: false, timeZone: 'Europe/Paris' }).replace(/\D/g, ''));
   const hello = h < 5 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
@@ -106,9 +116,9 @@ export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [
   ].map((c) => `<span class="chip">${esc(c)}</span>`).join('');
   // What waits for Sam (date · gesture · why him), read by the bot in each project's files, shown HERE only.
   const att = attentes && attentes.projets && attentes.projets.length
-    ? attentes.projets.map((p) => `<p class="proj">${esc(p.label)}</p><ol class="plain">${p.lignes.map(taskHtml).join('')}</ol>`).join('')
-      + `<p class="note">Mis à jour ${esc(new Date(attentes.date).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' }))}, dans l’ordre où les faire. Lu dans les fichiers de tes projets ; le bot ne montre que le nombre.</p>`
-    : (attentes ? empty('✨', 'Rien n’attend ta décision. Profite.') : empty('⏳', 'Pas encore lu : le bot remplit cette liste dans l’heure qui suit son démarrage.'));
+    ? attentes.projets.map((p) => `<p class="proj">${esc(p.label)}</p><ol class="plain">${p.lignes.map((l) => taskHtml(l, token)).join('')}</ol>`).join('')
+      + faitesHtml(attentes.faites, token, attentes.auto) + `<p class="note">Une ligne s’ajoute ou s’en va toute seule quand le Cockpit peut le vérifier (toutes les 5 minutes) ; sinon touche « ✅ C’est fait ». Mis à jour ${esc(new Date(attentes.date).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' }))}, dans l’ordre où les faire. Lu dans les fichiers de tes projets ; le bot ne montre que le nombre.</p>`
+    : (attentes ? empty('✨', 'Rien n’attend ta décision. Profite.') + faitesHtml(attentes.faites, token, attentes.auto) : empty('⏳', 'Pas encore lu : le bot remplit cette liste dans l’heure qui suit son démarrage.'));
   const srv = sante ? `${sante.ok ? '<span class="badge ok">En bonne santé</span>' : '<span class="badge bad">À surveiller</span>'}
     <div class="row"><span>Correctifs de sécurité en attente</span><span>${sante.securite_en_attente}</span></div>
     <div class="row"><span>Disque utilisé</span><span>${sante.disque_pct} %</span></div>
@@ -370,7 +380,7 @@ export function prospectsPage({ list = [], token, message, sent = null, todayIso
 // The vault password panel: create it (first time), convert the first sealed papers (v1), or open the vault.
 // Hidden until the phone's script runs (so it can never be posted to the server); the password never leaves the phone.
 // « abime »: the wrapped key is missing or damaged while sealed papers exist: never offer to create a new one.
-function keyPanel({ vaultInfo = { etat: 'absent' }, verif, token, index = [] }) {
+function keyPanel({ vaultInfo = { etat: 'absent' }, verif, token, index = [], indice = '' }) {
   const v1 = index.filter((d) => d.e2e && !isE2(d.titre));
   const v2 = index.some((d) => d.e2e && isE2(d.titre));
   const mode = vaultInfo.etat === 'ok' ? 'ouvrir' : vaultInfo.etat === 'abime' || v2 ? 'abime' : v1.length || verif ? 'migrer' : 'creer';
@@ -385,11 +395,11 @@ function keyPanel({ vaultInfo = { etat: 'absent' }, verif, token, index = [] }) 
    <button type="submit">${mode === 'creer' ? '🔑 Créer et ouvrir le coffre' : '🔓 Ouvrir le coffre'}</button></form>`;
   return `<div id="coffre-etat" hidden data-vault="${vaultInfo.vault ? esc(JSON.stringify(vaultInfo.vault)) : ''}" data-verif="${esc(verif || '')}" data-v1="${esc(v1.map((d) => d.id).join(','))}">${rows}</div>
   <section class="card" id="panneau-cle" data-mode="${mode}" data-jeton="${esc(token)}" hidden style="margin-top:12px"${mode === 'abime' ? ' role="alert"' : ''}><h2>${mode === 'abime' ? '⚠️ Clé du coffre introuvable' : mode === 'creer' ? '🔑 Créer ton mot de passe du coffre' : '🔑 Ouvrir le coffre'}</h2><p class="note" style="margin-top:-6px">${text}</p>
-   ${form}<div id="cle-msg" class="alert" hidden></div></section>
+   ${form}${indice && mode !== 'abime' && mode !== 'creer' ? `<details class="indice" style="margin-top:10px"><summary style="cursor:pointer;color:var(--accent);font-weight:600">💡 Voir mon indice</summary><p class="d" style="margin:6px 0 0">${esc(indice)}</p></details>` : ''}<div id="cle-msg" class="alert" hidden></div></section>
   <p id="cle-ouverte" hidden class="note" style="margin-top:12px">🔓 Coffre ouvert sur ce téléphone (il se referme seul après 15 min). <button type="button" class="ghost" id="verrouiller-coffre">🔒 Refermer maintenant</button></p>`;
 }
 
-export function coffrePage({ index = [], places = [], filtre = {}, token, message, sent = null, distant = null, cle = true, todayIso, nonce = null, script = null, verif = '', vaultInfo = { etat: 'absent' } }) {
+export function coffrePage({ index = [], places = [], filtre = {}, token, message, sent = null, distant = null, cle = true, todayIso, nonce = null, script = null, verif = '', vaultInfo = { etat: 'absent' }, indice = '' }) {
   const counts = compterPar(index);
   const docs = filtrer(index, filtre).filter((d) => !filtre.afaire || d.afaire === 'a_faire');
   const todo = aFaire(index).length;
@@ -433,7 +443,7 @@ export function coffrePage({ index = [], places = [], filtre = {}, token, messag
    <div class="chips"><span class="chip">📄 ${index.length} papier${index.length > 1 ? 's' : ''}</span>${todo ? `<span class="chip">📌 ${todo} à faire</span>` : ''}${copies}</div></section>
   ${cle ? '' : '<div class="alert warn">Le coffre s’ouvre après la prochaine mise à jour du serveur (/maj dans le bot). Tu pourras alors ranger tes papiers.</div>'}
   ${message ? `<div class="alert ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}</div>` : ''}
-  ${keyPanel({ vaultInfo, verif, token, index })}
+  ${keyPanel({ vaultInfo, verif, token, index, indice })}
   <div class="cards" style="margin-top:12px">
    <section class="card wide"><details${!index.length || (message && !message.ok && sent) ? ' open' : ''}><summary style="cursor:pointer;font-weight:700;font-size:17px;list-style:none">➕ Ranger un papier${here ? ` dans ${esc(here)}` : ''}</summary>
     <form method="post" action="/coffre/ajouter" enctype="multipart/form-data" style="margin-top:10px" id="form-ranger">${tok}
@@ -444,6 +454,9 @@ export function coffrePage({ index = [], places = [], filtre = {}, token, messag
      <div id="pw-msg" class="alert" hidden></div>
      <button type="submit">🔐 Ranger dans le coffre</button></form></details></section>
    <section class="card wide"><div class="chips f" style="margin-bottom:10px">${chips}</div>${list}</section>
+   <section class="card wide"><details${indice ? '' : ' open'}><summary style="cursor:pointer;font-weight:700;font-size:17px;list-style:none">💡 Indice du mot de passe${indice ? ' (enregistré)' : ''}</summary>
+    <p class="note">Une phrase qui te fait penser au mot de passe, <b>jamais le mot de passe ni un de ses mots</b> : quelqu’un qui verrait l’indice ne doit pas pouvoir le deviner. Exemple : « les 4 mots écrits sur ma fiche de secours, rangée dans le classeur bleu ». Il s’affiche sous « Ouvrir le coffre », derrière Face ID.</p>
+    <form method="post" action="/coffre/indice" id="form-indice">${tok}<div class="f"><label for="indice">Ton indice (80 caractères maximum, vide = effacé)</label><input id="indice" name="indice" maxlength="80" value="${esc(indice)}" autocomplete="off"></div><div id="indice-msg" class="alert" hidden></div><button type="submit">💡 Enregistrer l’indice</button></form></details></section>
    <section class="card wide"><h2>💡 Bon à savoir</h2><ul class="plain">
     <li>Ton mot de passe du coffre ne quitte jamais ton iPhone et n’est gardé nulle part : même quelqu’un qui prendrait le serveur ou une sauvegarde ne pourrait rien lire. Écris-le sur ta fiche de secours : perdu = les papiers 🔒 sont perdus pour de bon.</li>
     <li>Une fois tapé, le coffre reste ouvert 15 minutes sur ce téléphone, puis se referme tout seul (aussi quand tu touches « Verrouiller »).</li>
@@ -454,7 +467,7 @@ export function coffrePage({ index = [], places = [], filtre = {}, token, messag
 }
 
 // One paper, shown inside the app (the app opened from the home screen has no back button: never a new tab).
-export function coffreViewPage({ doc, places, nonce = null, script = null, token = '', vaultInfo = { etat: 'absent' }, verif = '', index = [] }) {
+export function coffreViewPage({ doc, places, nonce = null, script = null, token = '', vaultInfo = { etat: 'absent' }, verif = '', index = [], indice = '' }) {
   const t = TYPES.find(([k]) => k === doc.type) || ['autre', '📄', 'Autre'];
   const src = `/coffre/f/${esc(doc.id)}`;
   const sealedT = isE2(doc.titre);
@@ -466,7 +479,7 @@ export function coffreViewPage({ doc, places, nonce = null, script = null, token
      <ul style="margin:8px 0 8px 18px;padding:0"><li><b>Enregistrer dans Fichiers › iCloud Drive</b>, avec la protection avancée d’iCloud activée (Réglages › ton nom › iCloud › Protection avancée des données).</li><li>Ou l’envoyer par <b>Messages, WhatsApp ou Signal</b> (chiffrés de bout en bout).</li><li>Évite Mail, l’impression dans un lieu public et les applis que tu ne connais pas.</li></ul>
      <button type="button" id="avertir-ok">J’ai compris, continuer</button> <button type="button" class="ghost" id="avertir-non">Annuler</button></div>` : '';
   return layout(sealedT ? 'Papier chiffré' : doc.titre, '/coffre', `<p style="margin:0 0 10px">${back}</p>
-  ${doc.e2e ? keyPanel({ vaultInfo, verif, token, index }) : ''}
+  ${doc.e2e ? keyPanel({ vaultInfo, verif, token, index, indice }) : ''}
   <section class="card" style="margin-top:12px"><h2>${doc.e2e ? '🔒' : t[1]} ${title}</h2><p class="sub" style="margin-top:-6px">${esc(t[2])} · ${esc(libelle(places, doc.rattache))}${doc.date ? ` · ${esc(date(doc.date))}` : ''}${doc.e2e ? ' · chiffré sur ton iPhone' : ''}</p>
    <div id="papier" data-id="${esc(doc.id)}" data-src="${src}" data-mime="${esc(doc.mime)}" data-name="${esc(name)}" data-e2e="${doc.e2e ? '1' : '0'}"${doc.e2e ? ' hidden' : ''}>Chargement…</div>
    <div class="grid2"><button type="button" id="pleinecran" hidden>⛶ Plein écran</button><button type="button" id="partager" hidden>📤 Enregistrer ou envoyer</button></div>${warn}

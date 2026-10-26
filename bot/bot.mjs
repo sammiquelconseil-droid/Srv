@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
+import dns from 'node:dns/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createTelegram } from './telegram.mjs';
@@ -68,12 +69,26 @@ const loadExtra = async () => {
 await loadExtra(); setInterval(loadExtra, 3600e3);
 
 // What waits for Sam, in full, for the Cockpit screen only (STATE/decisions.json; never sent to Telegram).
-const refreshDecisions = async () => { try { saveJson('decisions.json', await attentes({ read: sync.read })); } catch (e) { await log(`decisions.json: ${e.message}`); } };
+// Checks the server makes by itself, so a line tagged « {auto:…} » in ROADMAP.md leaves the list once done.
+// Read-only: a version number, the presence of the safe's wrapped key, a public DNS answer. Nothing is sent anywhere.
+const DOMAIN_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+const verifier = async (kind, arg) => {
+  if (kind === 'maj') { const [here, there] = [await localVersion(), await remoteVersion()]; return !!here && here === there; }
+  if (kind === 'coffre') return fsSync.existsSync(path.join(STATE, 'data', 'coffre-vault.json'));
+  if (kind === 'ns') {
+    const [dom, want] = String(arg).toLowerCase().split('=');
+    if (!DOMAIN_RE.test(dom || '') || !DOMAIN_RE.test(want || '')) return false;
+    const ns = await dns.resolveNs(dom);
+    return ns.length > 0 && ns.every((n) => n.toLowerCase().replace(/\.$/, '').endsWith(want));
+  }
+  return false;
+};
+const refreshDecisions = async () => { try { saveJson('decisions.json', await attentes({ read: sync.read, verifier })); } catch (e) { await log(`decisions.json: ${e.message}`); } };
 const projets = async (chat, decisionsOnly) => {
   await tg.send(chat, '⏳ Je lis tes projets…');
   await refreshDecisions();
   const alertes = evaluate({ sante: await readJson(path.join(STATE, 'sante.json'), null), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json'), null), ficheRappel: state.ficheRappel });
-  const text = await synthese({ read: sync.read, commit: sync.commit, decisionsOnly, alertes, queued: queue.size });
+  const text = await synthese({ read: sync.read, commit: sync.commit, decisionsOnly, alertes, queued: queue.size, faits: await readJson(path.join(STATE, 'data', 'faits.json'), {}), verifier });
   if (findSecret(text)) { await log('projets: summary withheld (secret-looking)'); return tg.send(chat, '🔒 Synthèse retenue : une ligne ressemblait à un secret. Lis-la dans le Cockpit.'); }
   for (let i = 0; i < text.length; i += 3900) await tg.send(chat, text.slice(i, i + 3900));
 };
@@ -209,9 +224,10 @@ setInterval(async () => {
   if (queue.size >= 3) current.push({ cause: 'github', level: 'critique', text: `${queue.size} notes n’arrivent pas sur GitHub (jeton expiré ?). Elles sont gardées sur le serveur.` });
   await alertTick({ current, state, send: (m) => tg.send(owner, m), log });
   await saveState();
-  await refreshDecisions();
 }, 3600e3);
 setTimeout(() => refreshDecisions(), 20e3);
+// The « À faire par toi » list follows the projects' files and the checks above every 5 minutes (a few small reads).
+setInterval(() => refreshDecisions(), 300e3);
 
 let offset = state.offset || 0;
 for (;;) {

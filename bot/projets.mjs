@@ -2,6 +2,7 @@
 // and lists them in Sam's priority order (REGLES-COMMUNES §H). HOC is never read here: its data belong to Assimina.
 import { PROJECTS } from './classify.mjs';
 import { findSecret } from './secrets.mjs';
+import { cleTache, lireFaits } from './faits.mjs';
 
 // Telegram is not end-to-end encrypted: amounts and anything secret-looking never leave the Cockpit.
 // Details stay readable on the Cockpit screens over Tailscale.
@@ -28,28 +29,38 @@ export const SOURCES = {
 
 // Full text of what waits for Sam, for the Cockpit screen (behind Tailscale + Face ID): no minimising,
 // markdown stripped. Written by the bot to STATE/decisions.json, read by the app. Never sent to Telegram.
-const plain = (s, n = 400) => { const t = String(s || '').replace(/`|^#+\s*|^- (\[ \] )?/g, '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
-export async function attentes({ read: readAny, now = new Date() }) {
+const plain = (s, n = 400) => { const t = String(s || '').replace(AUTO_RE, ' ').replace(/`|^#+\s*|^- (\[ \] )?/g, '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+// A line may end with a check the server makes on its own, e.g. « {auto:maj} », « {auto:coffre} »,
+// « {auto:ns:leszaff.fr=ns.cloudflare.com} ». Once the check passes, the line leaves the list by itself.
+export const AUTO_RE = /\s*\{auto:([a-z]+)(?::([^}\s]{1,80}))?\}\s*/;
+export async function estFait(line, verifier) {
+  const m = String(line || '').match(AUTO_RE);
+  if (!m || !verifier) return false;
+  try { return (await verifier(m[1], m[2] || '')) === true; } catch { return false; }
+}
+export async function attentes({ read: readAny, verifier = null, now = new Date() }) {
   const hocRepo = PROJECTS.hoc.repo;
-  const projets = [];
+  const projets = [], auto = [];
   for (const k of ORDER) {
     const p = PROJECTS[k], src = SOURCES[k];
     if (!src || !src.attente || p.repo === hocRepo) continue;
     const body = (await readAny(p.repo, src.attente[0]).catch(() => null)) || '';
-    const lignes = (src.attente[1](body) || []).map((l) => plain(l));
+    const lignes = [];
+    for (const l of src.attente[1](body) || []) { if (await estFait(l, verifier)) auto.push({ ligne: plain(l), label: p.label }); else lignes.push(plain(l)); }
     if (lignes.length) projets.push({ key: k, label: p.label, lignes });
   }
-  return { date: now.toISOString(), total: projets.reduce((n, p) => n + p.lignes.length, 0), projets };
+  return { date: now.toISOString(), total: projets.reduce((n, p) => n + p.lignes.length, 0), projets, auto };
 }
 
-const clean = (s, n = 150) => { const t = minimise(String(s || '').replace(/\*\*|`|^#+\s*|^- (\[ \] )?/g, '')).replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+const clean = (s, n = 150) => { const t = minimise(String(s || '').replace(AUTO_RE, ' ').replace(/\*\*|`|^#+\s*|^- (\[ \] )?/g, '')).replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
 
 // Only explicitly allowed fields reach Telegram: the structured « Phase actuelle » line of ROADMAP.md
 // (REGLES-COMMUNES §D), the DATE of the last change (never the commit message), the NUMBER of decisions
 // waiting for Sam and their short titles (sections written for Sam, minimised). No journal text, no note,
 // no local file, no commit message. HOC: a fixed sentence, nothing read anywhere.
 const PHASE = /^Phase actuelle\s*:.*$/m;
-export async function synthese({ read: readAny, commit: commitAny, decisionsOnly = false, alertes = [], queued = 0, now = new Date() }) {
+export async function synthese({ read: readAny, commit: commitAny, decisionsOnly = false, alertes = [], queued = 0, faits = {}, verifier = null, now = new Date() }) {
+  const fait = lireFaits(faits); // ticked « ✅ C'est fait » in the Cockpit: no longer counted
   const hocRepo = PROJECTS.hoc.repo;
   const read = (repo, f) => (repo === hocRepo ? Promise.resolve(null) : readAny(repo, f));
   const commit = (repo) => (repo === hocRepo ? Promise.resolve(null) : commitAny(repo));
@@ -60,7 +71,9 @@ export async function synthese({ read: readAny, commit: commitAny, decisionsOnly
     const files = {};
     const get = async (f) => (f in files ? files[f] : (files[f] = await read(p.repo, f).catch(() => null)));
     const phase = ((await get('ROADMAP.md')) || '').match(PHASE);
-    const attente = (src.attente ? (src.attente[1]((await get(src.attente[0])) || '') || []) : []).map((l) => clean(l, 90));
+    const brut = src.attente ? (src.attente[1]((await get(src.attente[0])) || '') || []) : [];
+    const attente = [];
+    for (const l of brut) if (!fait[cleTache(l.replace(AUTO_RE, ' '))] && !(await estFait(l, verifier))) attente.push(clean(l, 90));
     decisions += attente.length;
     if (decisionsOnly) { if (attente.length) rows.push(`${p.label} : ${attente.length}`); continue; }
     const c = await commit(p.repo).catch(() => null);

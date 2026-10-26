@@ -14,3 +14,4 @@ src/coffre.mjs
 app/coffreclient.mjs
 app/pdfjs.mjs
 app/pdfworker.mjs
+src/faits.mjs
