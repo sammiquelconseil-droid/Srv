@@ -28,7 +28,7 @@ export const SOURCES = {
 
 // Full text of what waits for Sam, for the Cockpit screen (behind Tailscale + Face ID): no minimising,
 // markdown stripped. Written by the bot to STATE/decisions.json, read by the app. Never sent to Telegram.
-const plain = (s, n = 400) => { const t = String(s || '').replace(/\*\*|`|^#+\s*|^- (\[ \] )?/g, '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+const plain = (s, n = 400) => { const t = String(s || '').replace(/`|^#+\s*|^- (\[ \] )?/g, '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
 export async function attentes({ read: readAny, now = new Date() }) {
   const hocRepo = PROJECTS.hoc.repo;
   const projets = [];
