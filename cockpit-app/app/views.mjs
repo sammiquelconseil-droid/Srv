@@ -20,7 +20,7 @@ header .brand i{width:10px;height:10px;border-radius:50%;background:var(--ok);di
 nav{display:flex;gap:2px}nav a{color:var(--ink2);text-decoration:none;font-weight:600;padding:8px 12px;border-radius:12px;min-height:44px;line-height:28px;display:inline-flex;align-items:center;gap:6px}
 nav a[aria-current]{color:var(--accent);background:var(--accentbg)}nav a em{font-style:normal}
 @media(max-width:899px){header nav{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:6px 8px calc(6px + env(safe-area-inset-bottom));justify-content:space-around;z-index:3}
-nav a{flex-direction:column;gap:0;padding:4px 6px;font-size:11px;line-height:1.2;min-width:64px;border-radius:14px}nav a em{font-size:22px;line-height:1.1}main{padding-bottom:96px}}
+nav a{flex-direction:column;gap:0;padding:4px 4px;font-size:11px;line-height:1.2;min-width:58px;border-radius:14px}nav a em{font-size:22px;line-height:1.1}main{padding-bottom:96px}}
 main{max-width:1180px;margin:0 auto;padding:18px 16px 32px}
 h1{font-size:30px;line-height:1.15;letter-spacing:-.4px;margin:6px 0 2px;font-weight:800}h2{font-size:17px;margin:0 0 12px;display:flex;align-items:center;gap:8px;letter-spacing:-.1px}
 .sub{color:var(--ink2);margin:0 0 14px;font-size:15px}
@@ -52,9 +52,13 @@ input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line)
 button{font:inherit;font-weight:700;background:var(--accent);color:#fff;border:0;border-radius:14px;padding:12px 18px;min-height:44px;margin-top:8px;cursor:pointer}
 button.ghost{background:transparent;color:var(--ink2);border:1px solid var(--line);padding:6px 12px;margin:0;font-size:14px;min-height:36px}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+select,textarea{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);min-height:44px;width:100%}textarea{min-height:72px;resize:vertical}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}h3{font-size:14px;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 4px}
+a.btn{display:inline-block;font-weight:700;background:var(--accentbg);color:var(--accent);border-radius:14px;padding:10px 16px;min-height:44px;line-height:24px;text-decoration:none;margin-top:8px}
+button.danger{background:var(--badbg);color:var(--bad)}
 `;
 
-const NAV = [['/', '🏠', "Aujourd'hui"], ['/patrimoine', '🏡', 'Patrimoine'], ['/mes-chiffres', '💶', 'Mes chiffres'], ['/sauvegardes', '🔐', 'Sauvegardes']];
+const NAV = [['/', '🏠', "Aujourd'hui"], ['/patrimoine', '🏡', 'Patrimoine'], ['/dossier', '🗂', 'Dossier'], ['/mes-chiffres', '💶', 'Mes chiffres'], ['/sauvegardes', '🔐', 'Sauvegardes']];
 function layout(title, current, body, { nonce, script, noNav, ok = true } = {}) {
   const link = ([href, icon, label]) => `<a href="${href}"${current === href ? ' aria-current="page"' : ''}><em aria-hidden="true">${icon}</em>${label}</a>`;
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -120,7 +124,7 @@ export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [
   </div>`, { ok: !sante || sante.ok });
 }
 
-export function patrimoinePage({ summary, asOf }) {
+export function patrimoinePage({ summary, asOf, vide = false }) {
   const t = summary.totals;
   const kpis = `<div class="kpis">
    <div class="kpi"><span>Reste à payer (théorique)</span><b>${eur(t.restantCents)}</b></div>
@@ -134,16 +138,17 @@ export function patrimoinePage({ summary, asOf }) {
     const hyp = (b.hypotheses || []).map((h) => `<div class="row"><span>${esc(h.libelle)}${badge(h.statut)}</span><span>${eur(h.montantCents)}</span></div>`).join('');
     const al = (b.alertes || []).map((a) => `<div class="alert warn">⚠️ ${esc(a)}</div>`).join('');
     return `<section class="card"><h2>🏡 ${esc(b.nom)}</h2><p class="sub" style="margin:-6px 0 10px">${esc(b.type)} · ${esc(b.situation)}</p>
-     <div class="row"><span>Achat${badge(b.achat.statut)}</span><span>${eur(b.achat.prixCents)} · ${esc(date(b.achat.date))}</span></div>
-     <div class="row"><span>${esc(f.type)}${badge('estime')}</span><span>reste ${eur(bal.balanceCents)}</span></div>
+     <div class="row"><span>Achat${badge((b.achat || {}).statut)}</span><span>${eur((b.achat || {}).prixCents || 0)} · ${esc(date((b.achat || {}).date))}</span></div>
+     ${f && bal ? `<div class="row"><span>${esc(f.type)}${badge('estime')}</span><span>reste ${eur(bal.balanceCents)}</span></div>
      <div class="bar" role="img" aria-label="${Math.round(b.progress * 100)} % payé"><i style="width:${(b.progress * 100).toFixed(1)}%"></i></div>
      <div class="row"><span>Mensualité</span><span>${eur(f.mensualiteCents)}</span></div>
      <div class="row"><span>Échéances restantes</span><span>${bal.remaining} sur ${f.nombre}</span></div>
      <div class="row"><span>Prochaine</span><span>${esc(date(b.next))}</span></div>
-     <div class="row"><span>Dernière</span><span>${esc(date(b.end))}</span></div>
-     ${loyers}${hyp}${al}<p class="note">Paiement : ${esc(f.paiement)}.</p></section>`;
+     <div class="row"><span>Dernière</span><span>${esc(date(b.end))}</span></div>` : '<div class="row"><span>Crédit</span><span>aucun</span></div>'}
+     ${loyers}${hyp}${al}${f ? `<p class="note">Paiement : ${esc(f.paiement || '—')}.</p>` : ''}</section>`;
   }).join('');
-  return layout('Patrimoine', '/patrimoine', `<h1>Patrimoine</h1><p class="sub">Calculé au ${esc(date(asOf))}, en supposant toutes les échéances payées jusqu'ici. La valeur actuelle des biens n'est pas encore estimée.</p>${kpis}<div class="cards">${cards}</div>`);
+  const body = vide ? `<section class="card">${empty('🗂', 'Aucun bien pour l’instant.')}<a class="btn" href="/dossier">Remplir mon dossier</a></section>` : `${kpis}<div class="cards">${cards}</div><p style="margin-top:14px"><a class="btn" href="/dossier">✏️ Modifier mon dossier</a></p>`;
+  return layout('Patrimoine', '/patrimoine', `<h1>Patrimoine</h1><p class="sub">Calculé au ${esc(date(asOf))}, en supposant toutes les échéances payées jusqu'ici. La valeur actuelle des biens n'est pas encore estimée.</p>${body}`);
 }
 
 export function chiffresPage({ data, prive, token, message }) {
@@ -221,3 +226,62 @@ export function sauvegardesPage({ key, tested = false, token, message, backup })
 }
 
 export function errorPage(msg) { return layout('Erreur', '', `<h1>Oups</h1><p>${esc(msg)}</p>`); }
+
+// ---- Dossier : biens, crédits, loyers, revenus, abonnements — édités ici, gardés sur le serveur seulement (C-094).
+// `sent` = what Sam just typed, shown again when a save is refused (nothing he typed is lost on one wrong box).
+const STATUT_OPTS = [['declare', 'Déclaré (tu me l’as dit)'], ['verifie', 'Vérifié (vu sur un document)'], ['estime', 'Estimé (calculé)'], ['hypothese', 'Hypothèse (à confirmer)']];
+const cents = (c) => (c == null ? '' : (c / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ').replace('.', ',').replace(/,00$/, ''));
+function dossierKit(sent) {
+  const val = (name, stored) => (sent && name in sent ? sent[name] : stored);
+  const inp = (name, label, value, { type = 'text', mode, ph = '', max } = {}) => `<div class="f"><label for="${esc(name)}">${label}</label><input id="${esc(name)}" name="${esc(name)}" type="${type}" value="${esc(val(name, value ?? ''))}"${mode ? ` inputmode="${mode}"` : ''}${max ? ` maxlength="${max}"` : ''} placeholder="${esc(ph)}" autocomplete="off"></div>`;
+  const sel = (name, label, value) => { const v = val(name, value || 'declare'); const opts = STATUT_OPTS.some(([k]) => k === v) ? STATUT_OPTS : [[v, v], ...STATUT_OPTS]; return `<div class="f"><label for="${esc(name)}">${label}</label><select id="${esc(name)}" name="${esc(name)}">${opts.map(([k, l]) => `<option value="${esc(k)}"${v === k ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>`; };
+  const money = (name, label, value, ph = 'ex. 1 650,50') => inp(name, label, cents(value), { mode: 'decimal', ph });
+  const hidden = (name, value) => `<input type="hidden" name="${esc(name)}" value="${esc(val(name, value))}">`;
+  const area = (name, label, value, ph) => `<div class="f"><label for="${esc(name)}">${label}</label><textarea id="${esc(name)}" name="${esc(name)}" maxlength="1100" placeholder="${esc(ph)}">${esc(val(name, value))}</textarea></div>`;
+  return { inp, sel, money, hidden, area };
+}
+
+function bienForm(k, p, b = {}) {
+  const a = b.achat || {}, f = b.financement || {}, loyers = [...(b.loyers || [])];
+  while (loyers.length < 3) loyers.push({});
+  return `${b.id ? k.hidden(`${p}.id`, b.id) : ''}
+   ${k.inp(`${p}.nom`, 'Nom du bien', b.nom, { ph: 'ex. Maison de Ville-A', max: 60 })}
+   <div class="grid2">${k.inp(`${p}.type`, 'Type', b.type, { ph: 'Maison, appartement…', max: 40 })}${k.inp(`${p}.situation`, 'Situation', b.situation, { ph: 'Louée, non louée, travaux…', max: 80 })}</div>
+   <h3>Achat</h3><div class="grid2">${k.money(`${p}.achat.prix`, 'Prix d’achat (€)', a.prixCents)}${k.money(`${p}.achat.comptant`, 'Payé comptant (€)', a.comptantCents)}</div>
+   <div class="grid2">${k.inp(`${p}.achat.date`, 'Date d’achat', a.date, { type: 'date' })}${k.sel(`${p}.achat.statut`, 'Ces chiffres sont…', a.statut)}</div>
+   <p class="note" style="margin-top:0">Payé comptant : la somme versée le jour de l’achat, sans crédit.</p>
+   <h3>Crédit (laisse tout vide s’il n’y en a pas)</h3>${k.inp(`${p}.fin.type`, 'Type de crédit', f.type, { ph: 'Crédit-vendeur à 0 %, crédit bancaire, vente à terme…', max: 60 })}
+   <div class="grid2">${k.money(`${p}.fin.capital`, 'Capital (€)', f.capitalCents)}${k.money(`${p}.fin.mensualite`, 'Mensualité (€)', f.mensualiteCents)}</div>
+   <div class="grid2">${k.inp(`${p}.fin.premiere`, 'Première échéance', f.premiereEcheance, { type: 'date' })}${k.inp(`${p}.fin.nombre`, 'Nombre d’échéances', f.nombre, { mode: 'numeric', ph: 'ex. 120', max: 4 })}</div>
+   <div class="grid2">${k.money(`${p}.fin.signature`, 'Versé à la signature (€)', f.versementSignatureCents, 'facultatif')}${k.sel(`${p}.fin.statut`, 'Ces chiffres sont…', f.statut)}</div>
+   ${k.inp(`${p}.fin.paiement`, 'Comment tu paies', f.paiement, { ph: 'virement permanent le 10, prélèvement…', max: 80 })}
+   <p class="note" style="margin-top:0">Capital : la somme empruntée (ou restant à payer au vendeur le jour de l’achat). Versé à la signature : payé le jour de l’acte, avant les mensualités.</p>
+   <h3>Loyers reçus (par mois)</h3>${loyers.map((l, i) => `<div class="grid2">${k.inp(`${p}.loyer${i}.libelle`, i ? `Loyer n°${i + 1}` : 'Loyer', l.libelle, { ph: 'qui paie, ex. Locataire du 1er', max: 60 })}${k.money(`${p}.loyer${i}.montant`, 'Montant (€)', l.montantCents)}</div>${k.hidden(`${p}.loyer${i}.statut`, l.statut || 'declare')}`).join('')}
+   <h3>Points de vigilance</h3>${k.area(`${p}.alertes`, 'Une alerte par ligne, 5 au plus (affichées sur Aujourd’hui)', (b.alertes || []).join('\n'), 'ex. Relire la clause de l’acte avant toute location')}`;
+}
+
+export function dossierPage({ data, token, message, vide = false, sent = null }) {
+  const k = dossierKit(sent);
+  const jeton = `<input type="hidden" name="jeton" value="${esc(token)}">`;
+  const biens = data.biens.map((b, i) => `<section class="card"><h2>🏡 ${esc(b.nom)}</h2>${bienForm(k, `b${i}`, b)}</section>`).join('');
+  const newOpen = vide || (sent && Object.keys(sent).some((n) => n.startsWith('new.') && !n.endsWith('.statut') && String(sent[n]).trim()));
+  const rfr = (data.revenus && data.revenus.revenuFiscalReferenceCents) || {};
+  const abos = data.abonnements || [];
+  const abosHtml = abos.map((a, i) => `<div class="grid2">${k.inp(`a${i}.nom`, 'Nom (vide = supprimé)', a.nom, { max: 40 })}${k.money(`a${i}.montant`, 'Prix par mois (€)', a.montantCents)}</div>${k.hidden(`a${i}.statut`, a.statut || 'estime')}`).join('')
+    + `<div class="grid2">${k.inp('anew.nom', 'Ajouter un abonnement', '', { max: 40, ph: 'nom' })}${k.money('anew.montant', 'Prix par mois (€)', null)}</div>${k.hidden('anew.statut', 'estime')}`;
+  const retirer = data.biens.length ? `<section class="card"><h2>🗑 Retirer un bien</h2><p class="note" style="margin-top:0">Seulement si tu l’as vendu ou si c’est une erreur. Enregistre d’abord tes autres changements : ce bouton recharge la page.</p>${data.biens.map((b) => `<form method="post" action="/dossier/retirer" style="margin-top:10px">${jeton}<input type="hidden" name="id" value="${esc(b.id)}"><label style="display:flex;gap:8px;align-items:center;font-size:15px"><input type="checkbox" name="sur" value="1" required style="width:22px;height:22px;min-height:0">Oui, retirer « ${esc(b.nom)} »${b.type ? ` (${esc(b.type)})` : ''}</label><button type="submit" class="danger">Retirer</button></form>`).join('')}</section>` : '';
+  const save = '<button type="submit">💾 Enregistrer tout le dossier</button>';
+  return layout('Dossier', '/dossier', `<h1>Mon dossier</h1>
+  <p class="sub">Tes biens, crédits, loyers et abonnements. Ils restent sur ton serveur privé (copie chiffrée dans tes sauvegardes) : rien ne va sur GitHub ni dans une conversation. Les autres pages sont calculées à partir d’ici.</p>
+  ${message ? `<div class="alert ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}${message.ok ? '' : ' Ce que tu as tapé est encore là : corrige la case et réenregistre.'}</div>` : ''}
+  ${vide ? `<div class="alert info">Ton dossier est vide. Remplis « Ajouter un bien » ci-dessous, puis touche « Enregistrer tout le dossier ».</div>` : ''}
+  <form method="post" action="/dossier" class="cards" style="margin-top:12px">${jeton}
+   <div class="wide" style="text-align:right">${save}</div>
+   ${biens}
+   <section class="card"><details${newOpen ? ' open' : ''}><summary style="cursor:pointer;font-weight:700;font-size:17px;list-style:none">➕ Ajouter un bien</summary><div style="margin-top:10px">${bienForm(k, 'new', {})}</div></details></section>
+   <section class="card"><h2>💼 Revenus</h2><div class="grid2">${k.money('rfr', 'Revenu fiscal de référence (€)', rfr.valeur)}${k.sel('rfrStatut', 'Ce chiffre est…', rfr.statut === 'a_saisir' ? 'declare' : rfr.statut)}</div><p class="note">En haut de ton dernier avis d’imposition. Il sert au calcul du versement libératoire. Ton salaire se saisit dans « Mes chiffres ».</p></section>
+   <section class="card"><h2>🔁 Abonnements</h2>${abosHtml}<p class="note">Ici, la liste et le prix prévu ; ce que tu paies vraiment se saisit dans « Mes chiffres ».</p></section>
+   <div class="wide" style="text-align:right">${save}</div>
+  </form>
+  <div class="cards" style="margin-top:14px">${retirer}</div>`);
+}

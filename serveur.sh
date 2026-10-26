@@ -63,6 +63,24 @@ Description=Cockpit : sauvegarde chiffrée
 Type=oneshot
 ExecStart=/usr/local/sbin/cockpit-sauvegarde
 UNIT
+# Sauvegarde aussitôt après une modification du dossier depuis la page « Dossier » (l'appli dépose un marqueur ;
+# root efface le marqueur puis fait la sauvegarde chiffrée et l'envoie hors du serveur).
+cat > /etc/systemd/system/cockpit-sauvegarde-demandee.path <<'UNIT'
+[Unit]
+Description=Cockpit : sauvegarde demandée après une modification du dossier
+[Path]
+PathExists=/var/lib/cockpit/data/sauvegarde-demandee
+[Install]
+WantedBy=multi-user.target
+UNIT
+cat > /etc/systemd/system/cockpit-sauvegarde-demandee.service <<'UNIT'
+[Unit]
+Description=Cockpit : sauvegarde après modification du dossier
+[Service]
+Type=oneshot
+ExecStartPre=/bin/rm -f /var/lib/cockpit/data/sauvegarde-demandee
+ExecStart=/usr/local/sbin/cockpit-sauvegarde
+UNIT
 cat > /etc/systemd/system/cockpit-sauvegarde.timer <<'UNIT'
 [Unit]
 Description=Cockpit : sauvegarde chiffrée chaque nuit
@@ -106,6 +124,7 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now cockpit-nouvelle-cle.path > /dev/null
 systemctl enable --now cockpit-sauvegarde.timer > /dev/null
+systemctl enable --now cockpit-sauvegarde-demandee.path > /dev/null
 /usr/local/sbin/cockpit-sauvegarde || true
 
 # --- Application Cockpit (écrans) ----------------------------------------------------------
@@ -123,36 +142,13 @@ done < "$stage/FILES"
 while read -r f; do install -m 644 "$stage/$f" "$APP/$f"; done < "$stage/FILES"
 rm -rf "$stage"
 
-# Données : copiées depuis le dépôt privé cockpit (dossier/situation.json) avec le jeton du bot.
-cat > /usr/local/sbin/cockpit-donnees <<'SH'
-#!/usr/bin/env bash
-set -uo pipefail
-tok=$(cat /var/lib/cockpit/secrets/github 2> /dev/null) || { echo "pas de jeton"; exit 0; }
-t=$(mktemp)
-if curl -fsSL -H "Authorization: Bearer $tok" -H "Accept: application/vnd.github.raw" \
-     "https://api.github.com/repos/sammiquelconseil-droid/cockpit/contents/dossier/situation.json" -o "$t" && jq -e '.biens | length > 0' "$t" > /dev/null; then
-  install -m 640 -o cockpit -g cockpit "$t" /var/lib/cockpit/data/situation.json
-fi
-rm -f "$t"
-SH
-chmod 755 /usr/local/sbin/cockpit-donnees
-cat > /etc/systemd/system/cockpit-donnees.service <<'UNIT'
-[Unit]
-Description=Cockpit : copie des données depuis le dépôt privé
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/cockpit-donnees
-UNIT
-cat > /etc/systemd/system/cockpit-donnees.timer <<'UNIT'
-[Unit]
-Description=Cockpit : données toutes les heures
-[Timer]
-OnCalendar=hourly
-Persistent=true
-[Install]
-WantedBy=timers.target
-UNIT
-/usr/local/sbin/cockpit-donnees
+# Données : le dossier (biens, crédits, loyers) vit SEULEMENT sur ce serveur, dans /var/lib/cockpit/data/situation.json,
+# édité depuis la page « Dossier » et chiffré dans les sauvegardes. Il n'est plus copié depuis GitHub (C-094, 26/10/2026) :
+# l'ancienne copie horaire est retirée. Le fichier déjà présent est gardé tel quel.
+systemctl disable --now cockpit-donnees.timer > /dev/null 2>&1 || true
+rm -f /etc/systemd/system/cockpit-donnees.timer /etc/systemd/system/cockpit-donnees.service /usr/local/sbin/cockpit-donnees
+systemctl daemon-reload
+if [ -f /var/lib/cockpit/data/situation.json ]; then chown cockpit:cockpit /var/lib/cockpit/data/situation.json; chmod 600 /var/lib/cockpit/data/situation.json; fi
 
 # Adresse : https via « tailscale serve » si la fonction est activée sur le réseau privé,
 # sinon l'application écoute directement sur l'adresse privée du serveur (jamais sur internet).
@@ -188,14 +184,12 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadOnlyPaths=/var/lib/cockpit
-ReadWritePaths=/var/lib/cockpit/data
+ReadWritePaths=/var/lib/cockpit
 UMask=0077
 [Install]
 WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
-systemctl enable --now cockpit-donnees.timer > /dev/null
 systemctl enable cockpit-app > /dev/null
 systemctl restart cockpit-app
 sleep 2

@@ -5,7 +5,8 @@ import path from 'node:path';
 import { summarize, upcoming } from '../src/patrimoine.mjs';
 import { upcomingDeadlines } from '../src/echeancier.mjs';
 import crypto from 'node:crypto';
-import { todayPage, patrimoinePage, chiffresPage, accesPage, errorPage, sauvegardesPage } from './views.mjs';
+import { todayPage, patrimoinePage, chiffresPage, accesPage, errorPage, sauvegardesPage, dossierPage } from './views.mjs';
+import { emptyDossier, parseDossierForm, removeBien, writeDossier, readDossier, parseEuros } from './dossier.mjs';
 import { pendingKey, testBackup, storeGithubToken } from './sauvegarde.mjs';
 import { createAuth, createSessions, parseCookies } from './auth.mjs';
 import fsSync from 'node:fs';
@@ -36,13 +37,7 @@ const auth = RP_ID ? createAuth({ rpId: RP_ID, origin: ORIGIN, store: keyStore }
 const sessions = createSessions({ load: () => readJsonSync(SESS_FILE), save: (m) => writeJsonSync(SESS_FILE, m) });
 const COOKIE = 'cockpit_session';
 
-// "1 650,50" -> 165050 cents; null when empty; throws when not a sane amount.
-export function parseEuros(input) {
-  const t = String(input ?? '').replace(/[\s\u00a0€]/g, '').replace(',', '.');
-  if (t === '') return null;
-  if (!/^\d{1,7}(\.\d{1,2})?$/.test(t)) throw new Error('montant invalide');
-  return Math.round(Number(t) * 100);
-}
+export { parseEuros };
 
 export async function savePrive(fields, data, now = new Date()) {
   const prive = (await readJson(PRIVE)) || {};
@@ -92,15 +87,19 @@ function takeCode(code) {
 }
 
 export async function render(url, opts = {}) {
-  const data = await readJson(DATA);
-  if (!data) return [503, errorPage('Les données ne sont pas encore arrivées sur le serveur.')];
+  // The dossier lives on this server only (C-094). Missing or empty = the screens still open, with an invitation to fill it.
+  const { etat, data } = await readDossier(DATA);
+  if (etat === 'illisible' && ['/', '/patrimoine', '/dossier'].includes(url)) return [500, errorPage('Ton dossier est présent sur le serveur mais illisible (fichier abîmé ou droits). Je ne l’affiche pas et rien ne peut l’écraser. Ne touche à rien : dis-le à Claude, la dernière sauvegarde le contient.')];
+  const vide = !data.biens.length;
   const asOf = todayIso();
   const summary = summarize(data, asOf);
   if (url === '/') {
     const alertes = summary.biens.flatMap((b) => (b.alertes || []).map((a) => `${b.nom} : ${a}`));
+    if (vide) alertes.push('Ton dossier (biens, crédits, loyers) est vide : remplis-le sur la page Dossier. Il reste sur ton serveur.');
     return [200, todayPage({ now: new Date(), sante: await readJson(path.join(STATE, 'sante.json')), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json')), notes: await lastNotes(), echeances: upcoming(summary, asOf), fiscal: upcomingDeadlines(asOf, 45), alertes, attentes: await readJson(path.join(STATE, 'decisions.json')) })];
   }
-  if (url === '/patrimoine') return [200, patrimoinePage({ summary, asOf })];
+  if (url === '/patrimoine') return [200, patrimoinePage({ summary, asOf, vide })];
+  if (url === '/dossier') return [200, dossierPage({ data, token: FORM_TOKEN, message: opts.message, vide, sent: opts.message && !opts.message.ok ? opts.fields : null })];
   if (url === '/mes-chiffres') return [200, chiffresPage({ data, prive: await readJson(PRIVE), token: FORM_TOKEN, message: opts.message })];
   if (url === '/sauvegardes') {
     // Without Face ID configured (RP_ID empty) nothing is session-protected: the key is then never shown.
@@ -152,19 +151,39 @@ export async function actSauvegardes(pathname, fields, deps = {}) {
   return { ok: false, text: 'Action inconnue.' };
 }
 
+// Actions of the Dossier page: the whole form is validated first, then written in one go (nothing on a bad field).
+export async function actDossier(pathname, fields, now = new Date()) {
+  const { etat, data: current } = await readDossier(DATA);
+  if (etat === 'illisible') return { ok: false, text: 'Ton dossier sur le serveur est illisible : je refuse de l’écraser. Dis-le à Claude.' };
+  try {
+    let next;
+    if (pathname === '/dossier/retirer') {
+      if (fields.sur !== '1') return { ok: false, text: 'Coche « Oui, retirer ce bien » avant de toucher le bouton. Rien n’a été changé.' };
+      next = removeBien(current, String(fields.id || ''));
+    } else next = parseDossierForm(fields, current, now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }));
+    await writeDossier(DATA, next);
+    await fs.writeFile(path.join(path.dirname(DATA), 'sauvegarde-demandee'), new Date().toISOString()).catch(() => {}); // root makes a fresh encrypted backup
+    return { ok: true, text: pathname === '/dossier/retirer' ? 'Bien retiré. Les chiffres sont recalculés.' : 'Dossier enregistré sur ton serveur. Les chiffres sont recalculés.' };
+  } catch (e) {
+    return { ok: false, text: e.champ ? `Rien n’a été enregistré — ${e.message}.` : 'Rien n’a été enregistré : un champ n’est pas valide ou le serveur n’a pas pu écrire.' };
+  }
+}
+
 export async function handlePost(req, res, pathname) {
   let body;
-  try { body = await readBody(req, 8192); } catch { res.writeHead(413, SECURITY); return res.end(errorPage('Trop de données.')); }
+  try { body = await readBody(req, pathname.startsWith('/dossier') ? 65536 : 8192); } catch { res.writeHead(413, SECURITY); return res.end(errorPage('Trop de données.')); }
   const fields = Object.fromEntries(new URLSearchParams(body));
-  const page = pathname.startsWith('/sauvegardes') ? '/sauvegardes' : '/mes-chiffres';
+  const page = pathname.startsWith('/sauvegardes') ? '/sauvegardes' : pathname.startsWith('/dossier') ? '/dossier' : '/mes-chiffres';
   let message;
   if (!sameSite(req) || fields.jeton !== FORM_TOKEN) message = { ok: false, text: 'Formulaire expiré ou venu d’ailleurs : rien n’a été enregistré. Recharge la page et recommence.' };
   else if (page === '/sauvegardes') { try { message = await actSauvegardes(pathname, fields); } catch { message = { ok: false, text: 'Impossible pour l’instant. Rien n’a été gardé.' }; } }
+  else if (page === '/dossier') message = await actDossier(pathname, fields);
   else {
-    try { await savePrive(fields, await readJson(DATA)); message = { ok: true, text: 'Enregistré sur ton serveur.' }; }
+    try { await savePrive(fields, (await readDossier(DATA)).data); message = { ok: true, text: 'Enregistré sur ton serveur.' }; }
     catch { message = { ok: false, text: 'Un montant n’est pas valide (exemple : 1650 ou 1 650,50). Rien n’a été enregistré.' }; }
   }
-  const [code, html] = await render(page, { message });
+  const sent = page === '/dossier' && pathname === '/dossier' ? fields : null; // re-shown on refusal, never stored
+  const [code, html] = await render(page, { message, fields: sent });
   res.writeHead(message.ok ? 200 : 400, SECURITY); res.end(html);
 }
 
@@ -178,7 +197,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
       if (pathname === '/acces') { const nonce = crypto.randomBytes(16).toString('base64url'); res.writeHead(200, withNonce(nonce)); return res.end(accesPage({ nonce, hasKeys: keyStore.list().length > 0 })); }
       if (auth && !currentSession(req)) { res.writeHead(303, { location: '/acces', 'cache-control': 'no-store', 'set-cookie': `${COOKIE}=; Path=/; Max-Age=0` }); return res.end(); }
       if (req.method === 'POST' && pathname === '/deconnexion') { sessions.drop(parseCookies(req.headers.cookie)[COOKIE]); res.writeHead(303, { location: '/acces', 'set-cookie': `${COOKIE}=; Path=/; Max-Age=0` }); return res.end(); }
-      if (req.method === 'POST' && (pathname === '/mes-chiffres' || pathname.startsWith('/sauvegardes/'))) return await handlePost(req, res, pathname);
+      if (req.method === 'POST' && (pathname === '/mes-chiffres' || pathname === '/dossier' || pathname === '/dossier/retirer' || pathname.startsWith('/sauvegardes/'))) return await handlePost(req, res, pathname);
       if (req.method !== 'GET') { res.writeHead(405, SECURITY); return res.end(errorPage('Méthode refusée.')); }
       const [code, html] = await render(pathname);
       res.writeHead(code, SECURITY); res.end(html);
