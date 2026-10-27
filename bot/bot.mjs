@@ -14,6 +14,8 @@ import { findSecret } from './secrets.mjs';
 import { createQueue, itemFor, createDeliver } from './queue.mjs';
 import { evaluate, alertTick } from './alerts.mjs';
 import { synthese, attentes } from './projets.mjs';
+import { parseSums, coffreChange, avertissementMaj, COFFRE_FILES, ECRAN_FILES } from './integrite.mjs';
+import { purgeNotes, purgeLog } from './purge.mjs';
 import { keyMessage, restoreTestMessage, tokenMessage, newKeyMessage, guardSend } from './secours.mjs';
 
 const env = process.env;
@@ -40,8 +42,19 @@ const RECEPTION = 'boite'; // reception branch used only once a repo's main refu
 const sync = createSync({ getToken: () => readText(path.join(SECRETS, 'github')), owner: env.GITHUB_OWNER || 'sammiquelconseil-droid', branchOf: (repo) => (state.branches || {})[repo] || null });
 const localVersion = () => readText(new URL('./VERSION', import.meta.url));
 
+// Before /maj: does the offered version change the safe's code? (installed files vs SHA256SUMS published with it)
+const APP_DIR = env.APP_DIR || '/opt/cockpit-app';
+async function coffreWarning() {
+  try {
+    const r = await fetch(`${RAW}/SHA256SUMS?t=${Date.now()}`, { headers: { 'cache-control': 'no-cache' }, signal: AbortSignal.timeout(10e3) });
+    const remote = r.ok ? parseSums(await r.text()) : {};
+    const local = {};
+    for (const f of [...COFFRE_FILES, ...ECRAN_FILES]) { try { local[f] = crypto.createHash('sha256').update(await fs.readFile(path.join(APP_DIR, f))).digest('hex'); } catch { /* missing = changed */ } }
+    return avertissementMaj(coffreChange(remote, local), coffreChange(remote, local, ECRAN_FILES));
+  } catch { return avertissementMaj(null); }
+}
 async function remoteVersion() {
-  const r = await fetch(`${RAW}/VERSION?t=${Date.now()}`, { headers: { 'cache-control': 'no-cache' } });
+  const r = await fetch(`${RAW}/VERSION?t=${Date.now()}`, { headers: { 'cache-control': 'no-cache' }, signal: AbortSignal.timeout(10e3) });
   return r.ok ? (await r.text()).trim() : '';
 }
 
@@ -125,7 +138,7 @@ const core = createCore({
       const [here, there] = [await localVersion(), await remoteVersion()];
       if (!there) return tg.send(chat, 'Impossible de lire la version disponible. Réessaie plus tard.');
       if (there === here) return tg.send(chat, `Déjà à jour (${here}).`);
-      return tg.send(chat, `Version installée : ${here || 'inconnue'}\nVersion disponible : ${there}\nInstaller la mise à jour ?`, { reply_markup: { inline_keyboard: [[{ text: '✅ Valider', callback_data: `x:maj:${there}` }, { text: 'Annuler', callback_data: 'x:non' }]] } });
+      return tg.send(chat, `Version installée : ${here || 'inconnue'}\nVersion disponible : ${there}\n${await coffreWarning()}\nInstaller la mise à jour ?`, { reply_markup: { inline_keyboard: [[{ text: '✅ Valider', callback_data: `x:maj:${there}` }, { text: 'Annuler', callback_data: 'x:non' }]] } });
     },
     '/cle': async (chat) => tg.send(chat, keyMessage({ pending: !!(await readText(KEY_FILE)), installed: !!(await readText('/etc/cockpit/sauvegarde.pub')), url: await cockpitUrl() })),
     '/test_sauvegarde': async (chat) => tg.send(chat, restoreTestMessage(await cockpitUrl())),
@@ -216,13 +229,24 @@ if (result && state.owner) {
   await fs.rm(path.join(STATE, 'maj-resultat'), { force: true });
 }
 
+// Once a day: notes and journal older than 90 days leave the server (C-061). Synchronous on purpose: no note can be
+// appended between the read and the write (Node runs one thing at a time).
+const purgeLocal = (todayIso) => {
+  if (state.purge === todayIso) return;
+  const rewrite = (f, fn) => { try { const t = fsSync.readFileSync(f, 'utf8'); const n = fn(t); if (n !== t) { fsSync.writeFileSync(f + '.tmp', n); fsSync.renameSync(f + '.tmp', f); } } catch { /* absent: nothing to purge */ } };
+  for (const f of fsSync.readdirSync(INBOX).filter((x) => x.endsWith('.md'))) rewrite(path.join(INBOX, f), (t) => purgeNotes(t, todayIso));
+  rewrite(path.join(STATE, 'bot.log'), (t) => purgeLog(t, Date.now()));
+  state.purge = todayIso;
+};
+
 // Hourly check, three levels (alerts.mjs): only incidents and decisions are sent, each once per change.
 setInterval(async () => {
   const owner = core.ownerId; if (!owner) return;
   const todayIso = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
-  const current = evaluate({ sante: await readJson(path.join(STATE, 'sante.json'), null), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json'), null), ficheRappel: state.ficheRappel, todayIso, dossier: await readJson(path.join(STATE, 'data', 'situation.json'), null), prospects: await readJson(path.join(STATE, 'data', 'prospects.json'), null), coffre: await readJson(path.join(STATE, 'data', 'coffre.json'), null) });
+  const current = evaluate({ sante: await readJson(path.join(STATE, 'sante.json'), null), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json'), null), ficheRappel: state.ficheRappel, todayIso, dossier: await readJson(path.join(STATE, 'data', 'situation.json'), null), prospects: await readJson(path.join(STATE, 'data', 'prospects.json'), null), coffre: await readJson(path.join(STATE, 'data', 'coffre.json'), null), integrite: await readJson(path.join(STATE, 'integrite.json'), null), integriteInstalle: fsSync.existsSync('/etc/systemd/system/cockpit-integrite.timer') });
   if (queue.size >= 3) current.push({ cause: 'github', level: 'critique', text: `${queue.size} notes n’arrivent pas sur GitHub (jeton expiré ?). Elles sont gardées sur le serveur.` });
   await alertTick({ current, state, send: (m) => tg.send(owner, m), log });
+  try { purgeLocal(todayIso); } catch (e) { await log(`purge: ${e.message}`); }
   await saveState();
 }, 3600e3);
 setTimeout(() => refreshDecisions(), 20e3);

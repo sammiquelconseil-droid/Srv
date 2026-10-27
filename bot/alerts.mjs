@@ -9,7 +9,7 @@ const fr = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 
 // todayIso (Paris date) enables the fiscal reminders: one « décision » per deadline at J-30, J-7 and J-1,
 // each with its own cause so it is sent exactly once.
-export function evaluate({ sante, sauvegarde, ficheRappel, todayIso = null, dossier = null, prospects = null, coffre = null, now = Date.now() }) {
+export function evaluate({ sante, sauvegarde, ficheRappel, todayIso = null, dossier = null, prospects = null, coffre = null, integrite = null, integriteInstalle = false, now = Date.now() }) {
   const out = [];
   const add = (cause, level, text) => out.push({ cause, level, text });
   if (todayIso) for (const e of remindersFor(todayIso)) add(`echeance:${e.id}:${e.date}:J-${e.jours}`, 'decision', `📅 ${e.jours === 1 ? 'Demain' : `Dans ${e.jours} jours`} (${fr(e.date)}) : ${e.libelle}.${e.statut === 'a_verifier' ? ' Date à revérifier cette année.' : ''} Détail sur l’écran Aujourd’hui du Cockpit.`);
@@ -28,6 +28,11 @@ export function evaluate({ sante, sauvegarde, ficheRappel, todayIso = null, doss
     if (sante.redemarrage_en_attente_h > 30) add('redemarrage', 'critique', 'Le redémarrage automatique du serveur ne se fait plus.');
     if (sante.ok === false && !out.some((a) => a.level === 'critique')) add('sante-autre', 'critique', 'Le contrôle de santé signale un problème.');
   }
+  // Code of the Cockpit changed outside /maj (root compares every hour, C-113). Absent = not installed yet: silent.
+  // Two causes: a stopped check followed by a real change must still send the second alert.
+  if (integrite && integrite.ok === false && integrite.cause === 'maj') add('integrite', 'critique', 'La dernière mise à jour s’est arrêtée en pleine installation. Refais /maj puis Valider ; n’ouvre pas ton coffre avant.');
+  else if (integrite && integrite.ok === false) add('integrite', 'critique', 'Le code des écrans du Cockpit a été modifié sur ton serveur en dehors d’une mise à jour. N’ouvre pas ton coffre et préviens Claude.');
+  if (integriteInstalle && !(integrite && Date.parse(integrite.date) > now - 26 * H)) add('integrite-age', 'critique', 'Le contrôle d’intégrité du code du Cockpit ne tourne plus (ou son résultat a disparu). N’ouvre pas ton coffre et préviens Claude.');
   if (!sauvegarde || now - Date.parse(sauvegarde.date) > 36 * H) add('sauvegarde', 'critique', 'Aucune sauvegarde depuis plus de 36 h.');
   else if (!sauvegarde.distant) add('sauvegarde', 'critique', 'La dernière sauvegarde n’a pas pu être copiée hors du serveur.');
   if (!ficheRappel || now - ficheRappel > 182 * 24 * H) add('fiche', 'decision', 'Rappel semestriel : vérifie ta fiche de secours papier (/secours pour la liste) et mets-y la date du jour.');

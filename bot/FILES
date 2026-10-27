@@ -15,3 +15,5 @@ schedules.mjs
 prospects.mjs
 coffre.mjs
 faits.mjs
+integrite.mjs
+purge.mjs

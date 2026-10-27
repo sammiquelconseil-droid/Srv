@@ -29,7 +29,7 @@ exec 9> /run/cockpit-sauvegarde.lock; flock 9
 # R : état gardé par root seul. Les fichiers lus par l'appli sont écrits ici puis déplacés d'un coup dans
 # /var/lib/cockpit (mv remplace un éventuel lien au lieu de le suivre : root ne touche jamais un lien posé là).
 R=/var/lib/cockpit-sauvegarde; install -d -m 700 "$R"
-publish() { chown -h cockpit:cockpit "$1"; chmod 640 "$1"; mv -f "$1" "/var/lib/cockpit/$2"; }
+publish() { chown -h cockpit:cockpit "$1"; chmod 640 "$1"; mv -fT "$1" "/var/lib/cockpit/$2"; }
 D=/var/backups/cockpit; install -d -m 750 -g cockpit "$D"
 f="$D/cockpit-$(date +%Y%m%d-%H%M).tar.age"
 tar -C / --exclude=var/lib/cockpit/cle-a-remettre --exclude='var/lib/cockpit/tmp-*' --exclude=var/lib/cockpit/coffre \
@@ -180,8 +180,58 @@ while read -r f; do
   curl -fsSL -H 'Cache-Control: no-cache' "$RAW/cockpit-app/$f" -o "$stage/$f"
   node --check "$stage/$f"   # vérifié sous son vrai nom (.mjs), sinon Node refuse l'extension
 done < "$stage/FILES"
+# Alarme d'intégrité (C-113) : empreintes des fichiers que /maj installe, gardées par root seul. Chaque heure, root
+# les recompare : un fichier changé, ajouté ou disparu en dehors de /maj = alerte du bot (« n'ouvre pas ton coffre »).
+# Le verrou empêche le contrôle de tomber au milieu de l'installation (fausse alerte).
+install -d -m 700 /var/lib/cockpit-integrite
+exec 8> /var/lib/cockpit-integrite/verrou; flock 8
+# Installation coupée au milieu (disque plein…) : le bot dit « mise à jour interrompue », pas « intrus ».
+trap 'touch /var/lib/cockpit-integrite/maj-interrompue' ERR
 while read -r f; do install -m 644 "$stage/$f" "$APP/$f"; done < "$stage/FILES"
+# Seuls les fichiers de la liste restent : un .mjs en trop (ancien, ou posé par quelqu'un) est retiré.
+for f in "$APP"/app/*.mjs "$APP"/src/*.mjs; do grep -qxF "${f#"$APP"/}" "$stage/FILES" || rm -f "$f"; done
+(cd "$APP" && xargs sha256sum < "$stage/FILES") > /var/lib/cockpit-integrite/attendu.tmp
+mv -f /var/lib/cockpit-integrite/attendu.tmp /var/lib/cockpit-integrite/attendu
+rm -f /var/lib/cockpit-integrite/maj-interrompue
+trap - ERR
 rm -rf "$stage"
+flock -u 8
+cat > /usr/local/sbin/cockpit-integrite <<'SH'
+#!/usr/bin/env bash
+set -uo pipefail
+APP=/opt/cockpit-app; W=/var/lib/cockpit-integrite
+[ -f "$W/attendu" ] || exit 0
+exec 9> "$W/verrou"; flock -n 9 || exit 0   # une mise à jour est en train d'installer : on repasse dans une heure
+cd "$APP" || exit 0
+bad=$(sha256sum --quiet -c "$W/attendu" 2> /dev/null | sed 's/: .*//' | tr '\n' ' ')
+extra=$(comm -13 <(awk '{print $2}' "$W/attendu" | sort) <(ls app/*.mjs src/*.mjs 2> /dev/null | sort) | tr '\n' ' ')
+ok=true; [ -n "$bad$extra" ] && ok=false
+cause=""; [ -f "$W/maj-interrompue" ] && { ok=false; cause=maj; }   # installation coupée : pas un intrus
+t=$(mktemp "$W/r.XXXXXX")
+jq -n --arg d "$(date -Iseconds)" --argjson ok "$ok" --arg f "$bad$extra" --arg c "$cause" '{date: $d, ok: $ok, fichiers: $f, cause: $c}' > "$t" || { rm -f "$t"; exit 1; }
+# Lisible par le bot (groupe), modifiable par root seul ; -T : un lien posé là est remplacé, jamais suivi.
+chown -h root:cockpit "$t"; chmod 640 "$t"; mv -fT "$t" /var/lib/cockpit/integrite.json
+SH
+chmod 755 /usr/local/sbin/cockpit-integrite
+cat > /etc/systemd/system/cockpit-integrite.service <<'UNIT'
+[Unit]
+Description=Cockpit : contrôle d'intégrité du code
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cockpit-integrite
+UNIT
+cat > /etc/systemd/system/cockpit-integrite.timer <<'UNIT'
+[Unit]
+Description=Cockpit : contrôle d'intégrité chaque heure
+[Timer]
+OnCalendar=hourly
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now cockpit-integrite.timer > /dev/null
+/usr/local/sbin/cockpit-integrite || true
 
 # Données : le dossier (biens, crédits, loyers) vit SEULEMENT sur ce serveur, dans /var/lib/cockpit/data/situation.json,
 # édité depuis la page « Dossier » et chiffré dans les sauvegardes. Il n'est plus copié depuis GitHub (C-094, 26/10/2026) :
