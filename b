@@ -13,42 +13,11 @@ id -u cockpit > /dev/null 2>&1 || useradd --system --home /var/lib/cockpit --she
 install -d -m 750 -o cockpit -g cockpit /var/lib/cockpit /var/lib/cockpit/inbox
 install -d -m 755 /opt/cockpit-bot /etc/cockpit
 
-# Mise à jour du bot, déclenchée depuis Telegram (/maj puis Valider) : le bot dépose une demande,
-# root télécharge, vérifie la version et la syntaxe, installe et redémarre. Aucun droit root pour le bot.
-cat > /usr/local/sbin/cockpit-maj <<'SH'
-#!/usr/bin/env bash
-set -uo pipefail
-RAW=https://raw.githubusercontent.com/sammiquelconseil-droid/srv/main
-REQ=/var/lib/cockpit/maj-demandee; RES=/var/lib/cockpit/maj-resultat
-[ -f "$REQ" ] || exit 0
-want=$(tr -dc 'A-Za-z0-9.-' < "$REQ"); rm -f "$REQ"
-fail() { echo "$1" > "$RES"; chown cockpit:cockpit "$RES"; systemctl restart cockpit-bot; exit 0; }
-tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-curl -fsSL -H 'Cache-Control: no-cache' "$RAW/VERSION" -o "$tmp/VERSION" || fail "téléchargement impossible"
-curl -fsSL -H 'Cache-Control: no-cache' "$RAW/bot/FILES" -o "$tmp/FILES" || fail "téléchargement impossible"
-[ "$(tr -d '[:space:]' < "$tmp/VERSION")" = "$want" ] || fail "la version publiée a changé entre-temps, réessaie dans 5 minutes"
-while read -r f; do
-  [[ "$f" =~ ^[a-z]+\.mjs$ ]] || fail "liste de fichiers invalide"
-  curl -fsSL -H 'Cache-Control: no-cache' "$RAW/bot/$f" -o "$tmp/$f" || fail "téléchargement impossible"
-  node --check "$tmp/$f" 2> /dev/null || fail "fichier $f invalide"
-done < "$tmp/FILES"
-# Partie serveur (facultative) : réglages du serveur publiés avec la version, exécutés en root.
-if curl -fsSL -H 'Cache-Control: no-cache' "$RAW/serveur.sh" -o "$tmp/serveur.sh" 2> /dev/null; then
-  bash -n "$tmp/serveur.sh" || fail "partie serveur invalide"
-  if ! timeout 900 bash "$tmp/serveur.sh" >> /var/log/cockpit-maj.log 2>&1; then
-    fail "la partie serveur a échoué (détails dans /var/log/cockpit-maj.log), le bot n'a pas été changé"
-  fi
-fi
-rm -rf /opt/cockpit-bot.prev && cp -a /opt/cockpit-bot /opt/cockpit-bot.prev
-install -m 644 "$tmp"/*.mjs "$tmp/VERSION" /opt/cockpit-bot/
-echo "ok $want" > "$RES"; chown cockpit:cockpit "$RES"
-systemctl restart cockpit-bot; sleep 8
-if ! systemctl is-active --quiet cockpit-bot; then
-  rm -rf /opt/cockpit-bot && cp -a /opt/cockpit-bot.prev /opt/cockpit-bot
-  echo "le nouveau bot ne démarrait pas, l'ancienne version a été remise" > "$RES"; chown cockpit:cockpit "$RES"
-  systemctl restart cockpit-bot
-fi
-SH
+# Mise à jour du bot, déclenchée depuis Telegram (/maj puis Valider) : script root publié dans srv sous le nom « maj »
+# (source : infra/cockpit-maj.sh), remplacé ensuite à chaque /maj par serveur.sh.
+RAW_MAJ=https://raw.githubusercontent.com/sammiquelconseil-droid/srv/main
+curl -fsSL "$RAW_MAJ/maj" -o /usr/local/sbin/cockpit-maj.new && bash -n /usr/local/sbin/cockpit-maj.new
+mv -f /usr/local/sbin/cockpit-maj.new /usr/local/sbin/cockpit-maj
 chmod 755 /usr/local/sbin/cockpit-maj
 cat > /etc/systemd/system/cockpit-maj.path <<'UNIT'
 [Unit]

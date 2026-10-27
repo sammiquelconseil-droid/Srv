@@ -15,3 +15,7 @@ app/coffreclient.mjs
 app/pdfjs.mjs
 app/pdfworker.mjs
 src/faits.mjs
+src/micro.mjs
+src/factures.mjs
+src/pdf.mjs
+src/apporteurs.mjs

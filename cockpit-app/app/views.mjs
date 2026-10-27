@@ -2,6 +2,9 @@
 import { ETAPES, trier, compter, aRelancer } from '../src/prospects.mjs';
 import { TYPES, filtrer, annee, compterPar, aFaire, libelle, isE2 } from '../src/coffre.mjs';
 import { cleTache } from '../src/faits.mjs';
+import { ECHEANCES, LIGNES, MENTIONS, SUGGESTIONS, resumeFactures } from '../src/factures.mjs';
+import { MODES, TAUX, TAUX_SPECIAUX, BONUS_POINTS, BONUS_MIN_APPORTEURS, resume as apporteursResume, releve as apporteursReleve, key as apporteursKey, codeOf } from '../src/apporteurs.mjs';
+import { ACTIVITES, PARAMS as MICRO, resume as microResume, nomMois, PREMIERE_DECLARATION, PREMIERE_A_VERIFIER } from '../src/micro.mjs';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const eur = (c) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: c % 100 ? 2 : 0 }).format(c / 100);
 const date = (iso) => iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Paris' }) : '—';
@@ -20,7 +23,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system
 header{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:12px;align-items:center;z-index:2}
 header .brand{font-weight:800;font-size:17px;letter-spacing:-.2px;margin-right:auto;display:flex;align-items:center;gap:8px}
 header .brand i{width:10px;height:10px;border-radius:50%;background:var(--ok);display:inline-block;box-shadow:0 0 0 3px var(--okbg)}
-nav{display:flex;gap:2px}nav a{color:var(--ink2);text-decoration:none;font-weight:600;padding:8px 12px;border-radius:12px;min-height:44px;line-height:28px;display:inline-flex;align-items:center;gap:6px}
+nav{display:flex;gap:2px}@media(min-width:900px){header nav{flex:1;min-width:0;flex-wrap:wrap}}nav a{color:var(--ink2);text-decoration:none;font-weight:600;padding:8px 10px;border-radius:12px;min-height:44px;line-height:28px;display:inline-flex;align-items:center;gap:6px}
 nav a[aria-current]{color:var(--accent);background:var(--accentbg)}nav a em{font-style:normal}
 @media(max-width:899px){header nav{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:6px 8px calc(6px + env(safe-area-inset-bottom));justify-content:space-around;z-index:3}
 nav a{flex-direction:column;gap:0;padding:4px 4px;font-size:11px;line-height:1.2;min-width:58px;border-radius:14px}nav a em{font-size:22px;line-height:1.1}main{padding-bottom:96px}}
@@ -52,7 +55,7 @@ li.task details{margin-top:6px}li.task form.fait{margin:8px 0 0}li.task form.fai
 .dl{display:flex;gap:12px;align-items:flex-start}.dl .dt{flex:0 0 auto;min-width:64px;text-align:center;background:var(--bg);border-radius:12px;padding:6px 8px;line-height:1.15}.dl .dt b{display:block;font-size:19px;letter-spacing:-.3px}.dl .dt span{font-size:11.5px;color:var(--ink2);text-transform:uppercase;letter-spacing:.4px}
 form .f{display:flex;flex-direction:column;gap:4px;margin:10px 0}form label{font-weight:600;font-size:14px;color:var(--ink2)}
 input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);min-height:44px;width:100%}input:focus{outline:2px solid var(--accent);outline-offset:1px;background:var(--card)}
-button{font:inherit;font-weight:700;background:var(--accent);color:#fff;border:0;border-radius:14px;padding:12px 18px;min-height:44px;margin-top:8px;cursor:pointer}
+button{font:inherit;font-weight:700;background:var(--accent);color:#fff;border:0;border-radius:14px;padding:12px 18px;min-height:44px;margin-top:8px;cursor:pointer}button.small{padding:8px 12px;margin-top:0;font-size:14px;min-width:44px}@media(max-width:480px){.grid2.stack{grid-template-columns:1fr}}li.row form{margin:0}.grid2>*{min-width:0}select,input,textarea{max-width:100%}
 button.ghost{background:transparent;color:var(--ink2);border:1px solid var(--line);padding:6px 12px;margin:0;font-size:14px;min-height:36px}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 select,textarea{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);min-height:44px;width:100%}textarea{min-height:72px;resize:vertical}
@@ -66,7 +69,7 @@ li.doc{display:flex;gap:12px;align-items:flex-start}li.doc .ic{font-size:24px;li
 `;
 
 // Five tabs on the phone (bottom bar); « more » ones are in the header on a computer and in the footer on a phone.
-const NAV = [['/', '🏠', "Aujourd'hui"], ['/patrimoine', '🏡', 'Patrimoine'], ['/coffre', '🗄', 'Coffre'], ['/dossier', '🗂', 'Dossier'], ['/prospects', '🎯', 'Prospects'], ['/mes-chiffres', '💶', 'Mes chiffres', 'more'], ['/sauvegardes', '🔐', 'Sauvegardes', 'more']];
+const NAV = [['/', '🏠', "Aujourd'hui"], ['/patrimoine', '🏡', 'Patrimoine'], ['/coffre', '🗄', 'Coffre'], ['/dossier', '🗂', 'Dossier'], ['/prospects', '🎯', 'Prospects'], ['/factures', '🧾', 'Factures', 'more'], ['/apporteurs', '🤝', 'Apporteurs', 'more'], ['/micro', '💼', 'Micro-entreprise', 'more'], ['/mes-chiffres', '💶', 'Mes chiffres', 'more'], ['/sauvegardes', '🔐', 'Sauvegardes', 'more']];
 function layout(title, current, body, { nonce, script, noNav, ok = true } = {}) {
   const link = ([href, icon, label, more]) => `<a href="${href}"${more ? ' class="more"' : ''}${current === href ? ' aria-current="page"' : ''}><em aria-hidden="true">${icon}</em>${label}</a>`;
   const foot = noNav ? '' : `<footer class="foot">${NAV.filter((n) => n[3]).map(([h, i, l]) => `<a href="${h}">${i} ${l}</a>`).join('')}</footer>`;
@@ -104,7 +107,7 @@ const faitesHtml = (faites, token, auto = []) => {
   return `<details class="faites"><summary>Déjà faits (${n})</summary><ul class="plain">${vus}${coches}</ul></details>`;
 };
 
-export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [], alertes, attentes = null, budget = null, token = '' }) {
+export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [], alertes, attentes = null, budget = null, token = '', micro = null, factures = null }) {
   const d = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
   const h = Number(now.toLocaleString('fr-FR', { hour: 'numeric', hour12: false, timeZone: 'Europe/Paris' }).replace(/\D/g, ''));
   const hello = h < 5 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
@@ -141,6 +144,8 @@ export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [
   <div class="cards">
    <section class="card wide"><h2>🧑 À faire par toi${pill(total)}</h2>${att}</section>
    ${bud ? `<section class="card"><h2>💶 Budget du mois</h2>${bud}</section>` : ''}
+   ${factures && factures.nbOuvertes ? `<section class="card"><h2>🧾 À encaisser</h2><div class="row"><span>${factures.nbOuvertes} facture${factures.nbOuvertes > 1 ? 's' : ''} pas encore payée${factures.nbOuvertes > 1 ? 's' : ''}</span><span>${eur(factures.aEncaisser)}</span></div>${factures.enRetard.length ? `<p class="alert warn">${factures.enRetard.length} en retard : relance ton client.</p>` : ''}<p class="note"><a href="/factures">Voir mes factures →</a></p></section>` : ''}
+   ${micro && (micro.caAnnee || micro.aGarder) ? `<section class="card"><h2>💼 Micro-entreprise</h2><div class="row"><span>Reçu en ${esc(micro.annee)}</span><span>${eur(micro.caAnnee)}</span></div><div class="row"><span>Seuil de TVA</span><span>${micro.tva.niveau === 'due' ? 'TVA due' : `${micro.tva.pctBase} %`}</span></div><div class="row"><span>À garder de côté</span><span>${eur(micro.aGarder)}</span></div><p class="note"><a href="/micro">Ce qu’il faut déclarer →</a></p></section>` : ''}
    <section class="card"><h2>🗓 Échéances à venir <span class="note" style="margin:0;font-weight:500">30 jours</span></h2>${ech}</section>
    <section class="card"><h2>🧾 Impôts et URSSAF (45 jours)</h2>${fis}<p class="note">Le bot te prévient 30 jours, 7 jours et la veille. Une échéance n’est jamais comptée comme payée sans ta confirmation.</p></section>
    <section class="card"><h2>💬 Dernières notes</h2>${nts}</section>
@@ -192,6 +197,172 @@ export function chiffresPage({ data, prive, token, message }) {
    <section class="card"><h2>🔁 Abonnements réels (€ / mois)</h2>${abos}
     <button type="submit">Enregistrer</button></section>
   </form>`);
+}
+
+// « Ma micro-entreprise » (src/micro.mjs): received per month and activity → URSSAF lines, money to set aside, gauges.
+const dateFr = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Paris' });
+const TVA_TEXTE = (t) => ({
+  ok: 'Tu es loin du seuil : pas de TVA à facturer.',
+  orange: 'Tu approches du seuil : surveille tes encaissements de fin d’année.',
+  rouge: `Seuil de ${eur(t.base)} passé : TVA à facturer à partir du 1er janvier prochain. Et si tu passes ${eur(t.majore)} cette année, dès le jour du dépassement. Préviens Claude.`,
+  due: 'L’an dernier, tu as passé le seuil de TVA : tu dois facturer la TVA depuis le 1er janvier. Préviens Claude aujourd’hui.',
+  depasse: '2e seuil passé : tu dois facturer la TVA dès maintenant. Préviens Claude aujourd’hui.',
+})[t.niveau];
+export function microPage({ data, enc = null, todayIso, token, message, sent = null }) {
+  const r = microResume(data, todayIso, enc);
+  const warn = '<span class="badge warn">taux à vérifier</span>';
+  const gauge = (p, label) => `<div class="bar" role="img" aria-label="${p} % ${esc(label)}"><i style="width:${Math.min(100, p)}%"></i></div>`;
+  const mois = (x) => `<li class="task"><span class="t">${esc(nomMois(x.mois))}${x.enCours ? ' (mois en cours)' : ''} — à déclarer avant le ${esc(dateFr(x.echeance))}</span>
+      ${ACTIVITES.filter(([, , , debut]) => x.mois >= debut).map(([k, , ligne]) => `<div class="row"><span>${esc(ligne[0].toUpperCase() + ligne.slice(1))}</span><span>${eur(x[k])}</span></div>`).join('')}
+      ${x.total ? `<div class="row"><span>Cotisations estimées ${warn}</span><span>${eur(x.cotis)}</span></div>
+      <div class="row"><span><b>À mettre de côté</b> (cotisations + ${MICRO.provisionImpotPct} % pour l’impôt)</span><span><b>${eur(x.deCote)}</b></span></div>` : '<p class="note">Rien reçu : déclare 0 €, c’est obligatoire quand même.</p>'}</li>`;
+  const aVenir = r.mois.filter((x) => x.aDeclarer).reverse(), passes = r.mois.filter((x) => !x.aDeclarer).reverse();
+  const declare = `<ul class="plain">${aVenir.map(mois).join('')}</ul>
+      ${r.mois.some((x) => x.mois <= '2027-01' && x.aDeclarer) ? `<p class="note">Sur autoentrepreneur.urssaf.fr › Déclarer et payer : un montant par mois et par ligne. Ta 1re déclaration (au plus tard le ${esc(dateFr(PREMIERE_DECLARATION))}${PREMIERE_A_VERIFIER ? ' <span class="badge warn">date à vérifier dans ton espace URSSAF</span>' : ''}) regroupe octobre, novembre, décembre et janvier, chacun à part, zéros compris.</p>` : '<p class="note">Chaque mois sur autoentrepreneur.urssaf.fr › Déclarer et payer, même à 0 €. Si la date tombe un week-end, tu as jusqu’au jour ouvré suivant.</p>'}
+      ${passes.length ? `<details><summary>Mois déjà passés (${passes.length})</summary><ul class="plain">${passes.map(mois).join('')}</ul></details>` : ''}`;
+  const v = (m, k) => { const b = sent && `m.${m}.${k}` in sent ? sent[`m.${m}.${k}`] : (((data && data.mois) || {})[m] || {})[k]; return typeof b === 'number' ? (b / 100).toFixed(2).replace('.', ',').replace(',00', '') : esc(b || ''); };
+  const lignes = [...r.mois].reverse().map((x) => `<fieldset style="border:0;padding:0;margin:0 0 12px"><legend style="font-weight:700;margin-bottom:4px">${esc(nomMois(x.mois))}</legend><div class="grid2">${ACTIVITES.filter(([, , , debut]) => x.mois >= debut).map(([k, label]) => `<div class="f"><label for="m-${x.mois}-${k}">${esc(label)} (€)${x.factures[k] ? ` — en plus de tes factures payées (${eur(x.factures[k])})` : ''}</label><input id="m-${x.mois}-${k}" name="m.${x.mois}.${k}" inputmode="decimal" autocomplete="off" placeholder="0" value="${v(x.mois, k)}"></div>`).join('')}</div></fieldset>`).join('');
+  const prorata = r.tva.prorata ? `<p class="note">Année de création : le seuil est ramené à tes ${MICRO.creation.jours} jours d’activité (37 500 € × ${MICRO.creation.jours}/365). <span class="badge warn">règle à vérifier</span></p>` : '';
+  const pc = (n) => String(n).replace('.', ',');
+  return layout('Micro-entreprise', '/micro', `<section class="hero"><h1>💼 Ma micro-entreprise</h1>
+   <p class="sub">Ce que tu as reçu chaque mois, ce que tu déclares à l’URSSAF et ce que tu mets de côté. Tout reste sur ton serveur.</p>
+   <div class="chips"><span class="chip">💶 ${esc(r.annee)} : ${eur(r.caAnnee)} reçus</span><span class="chip">🧾 TVA : ${r.tva.niveau === 'due' ? 'due' : `${r.tva.pctBase} % du seuil`}</span><span class="chip">💰 À garder : ${eur(r.aGarder)}</span></div></section>
+  ${message ? `<div class="alert ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}</div>` : ''}
+  <div class="cards">
+   <section class="card wide"><h2>📮 À déclarer à l’URSSAF</h2>${declare}</section>
+   <section class="card"><h2>🧾 Seuil de TVA ${badge(r.tva.prorata ? MICRO.creation.statut : MICRO.tva.statut)}</h2>${gauge(r.tva.pctBase, 'du seuil de TVA')}
+    <p class="${r.tva.niveau === 'ok' ? 'note' : 'alert warn'}">${esc(TVA_TEXTE(r.tva))}</p>
+    <div class="row"><span>Reste avant ${eur(r.tva.base)}</span><span>${eur(r.tva.resteBase)}</span></div>
+    <div class="row"><span>Reste avant ${eur(r.tva.majore)}</span><span>${eur(r.tva.resteMajore)}</span></div>
+    ${prorata}<p class="note">Toutes tes activités comptent ensemble. Le bot te prévient à 80 %, sans jamais écrire de montant.</p></section>
+   <section class="card"><h2>📈 Plafond de la micro-entreprise ${badge(MICRO.plafondMicro.statut)}</h2>${gauge(r.plafond.pct, 'du plafond')}
+    <div class="row"><span>Utilisé en ${esc(r.annee)}</span><span>${r.plafond.pct} %</span></div>
+    <div class="row"><span>Reste avant ${eur(r.plafond.cents)}</span><span>${eur(r.plafond.reste)}</span></div></section>
+   <section class="card"><h2>💰 À garder de côté : ${eur(r.aGarder)}</h2>
+    <p class="note">Les cotisations pas encore payées (jusqu’à la date de chaque déclaration) et la réserve pour l’impôt de chaque année (gardée jusqu’au 30 septembre de l’année suivante, quand l’impôt est réglé).</p></section>
+   <section class="card wide"><h2>✏️ Ce que tu as reçu</h2>
+    <p class="note">Écris l’argent <b>réellement arrivé sur ton compte</b> dans le mois (pas ce que tu as facturé) : tout ce que tes clients t’ont payé, frais que tu leur refactures compris. Vide = rien reçu. Vendix commence en novembre 2026. <b>Tes factures marquées payées comptent déjà toutes seules</b> : n’écris ici que l’argent reçu sans facture du Cockpit.</p>
+    <form method="post" action="/micro"><input type="hidden" name="jeton" value="${esc(token)}">${lignes}<button type="submit">Enregistrer</button></form>
+    <p class="note">Taux utilisés : ${pc(MICRO.taux.bnc.pct)} % (libéral) et ${pc(MICRO.taux.bic.pct)} % (Vendix), plus la formation professionnelle (${pc(MICRO.formation.bnc)} % et ${pc(MICRO.formation.bic)} %), d’après plusieurs sources concordantes : à confirmer sur ton espace URSSAF à ta 1re déclaration. Les ${MICRO.provisionImpotPct} % pour l’impôt sont une réserve de prudence, pas un calcul d’impôt.</p></section>
+  </div>`);
+}
+
+// « 🧾 Factures » (src/factures.mjs): create, PDF, paid in one tap (→ « Ma micro-entreprise »), cancel by a credit note.
+export function facturesPage({ data, todayIso, token, message, sent = null }) {
+  const k = dossierKit(sent);
+  const e = data.emetteur;
+  const r = resumeFactures(data, todayIso);
+  const val = (name, v) => (sent && name in sent ? sent[name] : v);
+  const hid = `<input type="hidden" name="jeton" value="${esc(token)}">`;
+  const act = Object.fromEntries(ACTIVITES.map(([kk, label]) => [kk, label]));
+  const statut = (f) => (f.avoir ? '<span class="badge muted">Annulée</span>' : f.payee ? `<span class="badge ok">Payée le ${esc(dateFr(f.payee.date))}</span>` : f.echeance < todayIso ? '<span class="badge bad">En retard</span>' : '<span class="badge info">À encaisser</span>');
+  const ligne = (f) => `<li class="task"><span class="t">${esc(f.numero)} · ${esc(f.client.nom)} · <b>${eur(f.total)}</b></span>
+      <div class="row"><span>${esc(f.periode)} · ${esc(act[f.activite] || '')}</span>${statut(f)}</div>
+      <p class="note" style="margin:4px 0">Émise le ${esc(dateFr(f.date))}${f.avoir ? '' : ` · à payer ${f.echeance === f.date ? 'à réception' : `avant le ${esc(dateFr(f.echeance))}`}`}</p>
+      <p style="margin:6px 0"><a class="btn" href="/factures/${esc(f.numero)}.pdf">📄 Facture (PDF)</a>${f.avoir ? ` <a class="btn" href="/factures/${esc(f.avoir.numero)}.pdf">📄 Avoir ${esc(f.avoir.numero)}</a>` : ''}</p>
+      ${!f.avoir && !f.payee ? `<form method="post" action="/factures/payee" class="grid2">${hid}<input type="hidden" name="numero" value="${esc(f.numero)}"><div class="f"><label for="d-${esc(f.numero)}">Payée le</label><input id="d-${esc(f.numero)}" name="date" type="date" value="${esc(todayIso)}" max="${esc(todayIso)}"></div><div class="f" style="align-self:end"><button type="submit">✅ Marquer payée</button></div></form>
+      <details><summary>Une erreur dans cette facture ?</summary><p class="note">Une facture ne se modifie pas et ne s’efface pas (c’est la loi : numéros qui se suivent). Tu l’annules par un « avoir », puis tu en refais une juste.</p><form method="post" action="/factures/annuler">${hid}<input type="hidden" name="numero" value="${esc(f.numero)}"><button type="submit">Annuler ${esc(f.numero)} par un avoir</button></form></details>` : ''}
+      ${f.payee && !f.avoir ? `<details><summary>Marquée payée par erreur, ou client à rembourser ?</summary><form method="post" action="/factures/retirer">${hid}<input type="hidden" name="numero" value="${esc(f.numero)}"><button type="submit">Retirer le paiement (erreur de ma part)</button></form><p class="note">Le client n’a en fait jamais payé : le paiement ne compte plus dans ta page Micro-entreprise.</p>
+       <form method="post" action="/factures/annuler">${hid}<input type="hidden" name="numero" value="${esc(f.numero)}"><button type="submit">Je rembourse le client : faire un avoir</button></form><p class="note">Le remboursement est retiré de ton chiffre d’affaires du mois de l’avoir (pas du mois du paiement, déjà déclaré).</p></details>` : ''}</li>`;
+  const list = [...(data.factures || [])].reverse();
+  const coord = `<form method="post" action="/factures/coordonnees">${hid}
+     <div class="grid2">${k.inp('nom', 'Ton prénom et ton nom', e && e.nom, { max: 80, ph: 'tel que sur ton avis de situation' })}${k.inp('commercial', 'Nom commercial (facultatif)', e ? e.commercial : 'Vendix', { max: 60 })}</div>
+     ${k.area('adresse', 'Adresse de ton entreprise (3 lignes au plus)', e && e.adresse, 'n° et rue\ncode postal et ville')}
+     <div class="grid2">${k.inp('siret', 'SIRET (14 chiffres)', e && e.siret, { mode: 'numeric', max: 20 })}${k.inp('email', 'E-mail (facultatif)', e && e.email, { type: 'email', max: 120 })}</div>
+     ${k.inp('rcs', 'Immatriculation, si tu en as une (facultatif)', e && e.rcs, { max: 60, ph: 'ex. RCS Bobigny 123 456 789 — voir annuaire-entreprises.data.gouv.fr' })}
+     ${k.area('paiement', 'Comment te payer (écrit sur chaque facture)', e ? e.paiement : 'Par virement bancaire (coordonnées jointes à la facture).', '')}
+     <p class="note">N’écris pas ton IBAN ici : envoie ton RIB à part (PDF de ta banque), une seule fois à chaque client.</p>
+     <button type="submit">💾 Enregistrer mes coordonnées</button></form>`;
+  const lignesForm = Array.from({ length: LIGNES }, (_, j) => j + 1).map((i) => `<div>${k.inp(`l${i}_designation`, `Ligne ${i} : ce que tu factures`, '', { max: 120, ph: i === 1 ? 'ex. Abonnement Vendix, formule Boutique, novembre 2026' : 'facultatif' }).replace('<input ', '<input list="suggestions" ')}<div class="grid2">${k.inp(`l${i}_qte`, 'Quantité', '', { mode: 'numeric', ph: '1', max: 3 })}${k.inp(`l${i}_pu`, 'Prix (€)', '', { mode: 'decimal', ph: i === 1 ? 'ex. 249' : '0 = offert', max: 12 })}</div></div>`);
+  const nouvelle = `<form method="post" action="/factures">${hid}<input type="hidden" name="envoi" value="${esc(globalThis.crypto.randomUUID())}">
+     <div class="grid2">${k.inp('client_nom', 'Client (nom ou raison sociale)', '', { max: 80, ph: 'ex. Les Zaff' })}${k.inp('client_siren', 'SIREN du client (s’il en a un)', '', { mode: 'numeric', max: 11, ph: '9 chiffres, facultatif' })}</div>
+     ${k.area('client_adresse', 'Adresse du client (3 lignes au plus)', '', 'n° et rue\ncode postal et ville')}
+     <div><div class="f"><label for="client_pro">Ton client est</label><select id="client_pro" name="client_pro"><option value="1"${val('client_pro', '1') === '1' ? ' selected' : ''}>un professionnel (vendeur, entreprise)</option><option value="0"${val('client_pro', '1') === '0' ? ' selected' : ''}>un particulier</option></select></div>
+      <div class="f"><label for="activite">Activité</label><select id="activite" name="activite">${ACTIVITES.filter(([, , , debut]) => todayIso >= `${debut}-01`).map(([kk, label]) => `<option value="${kk}"${val('activite', 'bic') === kk ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select></div></div>
+     <div class="grid2">${k.inp('periode', 'Période ou date de la prestation', '', { max: 60, ph: 'ex. novembre 2026' })}<div class="f"><label for="echeance">À payer</label><select id="echeance" name="echeance">${ECHEANCES.map(([kk, l]) => `<option value="${kk}"${val('echeance', '0') === kk ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div></div>
+     ${lignesForm.slice(0, 2).join('')}<details><summary>Plus de lignes</summary>${lignesForm.slice(2).join('')}</details>
+     <datalist id="suggestions">${SUGGESTIONS.map((t) => `<option value="${esc(t)}">`).join('')}</datalist>
+     <p class="note">En touchant une ligne, des débuts de phrase te sont proposés : choisis-en un et complète. Vérifie bien : une fois créée, une facture ne se modifie plus (tu pourras seulement l’annuler par un avoir). Numéro et date sont mis tout seuls. Client à l’étranger : demande-moi avant (autres mentions).</p>
+     <button type="submit">🧾 Créer la facture</button></form>`;
+  return layout('Factures', '/factures', `<section class="hero"><h1>🧾 Mes factures</h1>
+   <p class="sub">Tu crées la facture, tu l’envoies en PDF, tu la marques payée : le montant va tout seul dans ta page Micro-entreprise. Tout reste sur ton serveur.</p>
+   <div class="chips"><span class="chip">💶 À encaisser : ${eur(r.aEncaisser)} (${r.nbOuvertes})</span><span class="chip">${r.enRetard.length ? `⏰ ${r.enRetard.length} en retard` : '✅ Aucun retard'}</span></div></section>
+  ${message ? `<div class="alert ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}${message.ok ? '' : ' Ce que tu as tapé est encore là : corrige la case et recommence.'}</div>` : ''}
+  <div class="cards">
+   ${e ? `<section class="card wide"><h2>➕ Nouvelle facture</h2>${nouvelle}</section>` : `<section class="card wide"><h2>👤 D’abord, tes coordonnées (une seule fois)</h2><p class="note">Elles sont écrites en haut de chaque facture. Ton SIRET est sur ton avis de situation (INSEE) ou sur annuaire-entreprises.data.gouv.fr.</p>${coord}</section>`}
+   <section class="card wide"><h2>📋 Mes factures</h2>${list.length ? `<ul class="plain">${list.map(ligne).join('')}</ul>` : '<div class="empty"><b>🧾</b><span>Aucune facture pour l’instant.</span></div>'}
+    <p class="note">Pour l’envoyer : ouvre le PDF, touche le bouton Partager (carré avec une flèche), puis WhatsApp, Mail ou Messages.</p></section>
+   ${e ? `<section class="card wide"><details><summary>👤 Mes coordonnées sur les factures</summary>${coord}</details></section>` : ''}
+   <section class="card wide"><h2>⚖️ Ce qui est écrit sur chaque facture ${badge(MENTIONS.statut)}</h2><ul class="plain">
+    <li>Ton nom suivi de « EI » (entrepreneur individuel), ton adresse, ton SIRET (et ton immatriculation si tu en as une).</li>
+    <li>Un numéro qui se suit sans trou (F2026-001, F2026-002…), la date, le client, ce que tu factures et le prix.</li>
+    <li>« ${esc(MENTIONS.tva.texte)} » : tu ne factures pas de TVA tant que tu restes sous le seuil (voir ta page Micro-entreprise). Le numéro de cette loi doit changer en 2027 : je mettrai la phrase à jour.</li>
+    <li>Pour un client professionnel : les pénalités de retard et l’indemnité de 40 €, obligatoires sur la facture même si tu ne les réclames pas.</li>
+    <li>Chaque facture garde pour toujours tes coordonnées et ces mentions telles qu’au jour où tu l’as faite.</li>
+    <li>Garde tes factures 10 ans : elles restent ici et dans tes sauvegardes.</li></ul>
+    <p class="note">Liste vérifiée sur plusieurs guides concordants ; les sites officiels n’étaient pas joignables depuis ma session le 27/10 : à confirmer (service-public.fr, fiche « Factures : mentions obligatoires »).</p></section>
+  </div>`);
+}
+
+// « 🤝 Apporteurs » (src/apporteurs.mjs): who brings clients, what they earn (from the paid invoices), what Sam paid.
+export function apporteursPage({ data, factures, todayIso, token, message, sent = null, facturesIllisibles = false, enLigne = null }) {
+  const k = dossierKit(sent);
+  const r = apporteursResume(data, factures, todayIso);
+  const hid = `<input type="hidden" name="jeton" value="${esc(token)}">`;
+  const dfr = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
+  const clientsFactures = [...new Set((factures.factures || []).map((f) => f.client && f.client.nom).filter(Boolean))].filter((n) => !data.clients.some((c) => apporteursKey(c.nom) === apporteursKey(n)));
+  const actifs = r.apporteurs.filter((a) => a.actif);
+  const card = (a) => `<section class="card"${a.actif ? '' : ' style="opacity:.6"'}><h3 style="margin-top:0">${esc(a.nom)} ${a.rang ? `<span class="badge info">n°${a.rang}</span>` : '<span class="badge muted">En pause</span>'}${a.contrat ? '' : ' <span class="badge warn">Contrat à signer</span>'}${a.parrain ? ` <span class="badge muted">présenté par ${esc((r.apporteurs.find((x) => x.id === a.parrain) || {}).nom || '')}</span>` : ''}</h3>
+    <p class="note" style="margin:0 0 6px">${a.contact ? `${esc(a.contact)} · ` : ''}depuis le ${esc(dfr(a.depuis))}${a.taux ? ` · <b>${esc((TAUX_SPECIAUX.find(([kk]) => kk === a.taux) || [])[1] || a.taux)}</b>` : ''}</p>
+    <div class="row"><span>À verser ce mois</span><span><b>${eur(a.ceMois)}</b></span></div>
+    <div class="row"><span>${a.solde < 0 ? 'Trop versé (à déduire du prochain)' : 'Reste à verser (tout compris)'}</span><span><b>${eur(Math.abs(a.solde))}</b></span></div>
+    <div class="row"><span>Dû depuis le début · déjà versé</span><span>${eur(a.du)} · ${eur(a.verse)}</span></div>
+    ${a.aVenir ? `<div class="row"><span>Le mois prochain (déjà encaissé)</span><span>${eur(a.aVenir)}</span></div>` : ''}
+    ${a.objectif ? `<p class="${a.objectif.ok ? 'alert ok' : a.objectif.depasse ? 'alert bad' : 'note'}">Objectif : ${a.objectif.atteints}/${a.objectif.clients} boutiques payantes avant le ${esc(dfr(a.objectif.avant))}${a.objectif.ok ? ' ✅ atteint' : a.objectif.depasse ? ' — pas atteint : son abonnement devient payant' : ''}${a.objectif.offert_jusqua ? ` · abonnement offert jusqu’au ${esc(dfr(a.objectif.offert_jusqua))}` : ''}</p>` : ''}
+    <h4 style="margin:10px 0 4px">Ses boutiques (${a.clients.length})</h4>
+    ${a.clients.length ? `<ul class="plain">${a.clients.map((c) => `<li class="row"><span>${esc(c.nom)}<br><small class="note">${c.premierPaiement ? `${c.payees} mois payé${c.payees > 1 ? 's' : ''}, 1er le ${esc(dfr(c.premierPaiement))}` : 'pas encore payé'}${c.enRetard ? ` · <b>${c.enRetard} en retard</b>` : c.enAttente ? ` · ${c.enAttente} en attente` : ''}</small></span><details><summary>Retirer ?</summary><form method="post" action="/apporteurs/client/retirer">${hid}<input type="hidden" name="client" value="${esc(c.nom)}"><button type="submit" class="small" style="background:var(--accentbg);color:var(--accent)">Oui, retirer (ses commissions passées disparaissent)</button></form></details></li>`).join('')}</ul>` : '<p class="note">Aucune boutique attribuée.</p>'}
+    ${enLigne && enLigne.url && a.token ? `<details><summary>🔗 Son lien à donner aux vendeurs</summary><textarea readonly style="min-height:48px;font-size:14px">${esc(`${enLigne.url}/essai?de=${codeOf(a.token)}`)}</textarea><p class="note">Tout vendeur qui ouvre la boutique d’essai par ce lien est marqué à son nom : tu le vois dans la demande « Je veux ma boutique », et lui voit le compte sur sa page.</p></details>
+    <details><summary>🌐 Son lien privé (tableau de bord en ligne)</summary><textarea readonly style="min-height:60px;font-size:14px">${esc(`${enLigne.url}/apporteur/${a.token}`)}</textarea><p class="note">Envoie-lui ce lien une fois. Il n’ouvre que SA page. Lien parti chez la mauvaise personne ? <form method="post" action="/apporteurs/lien" style="display:inline">${hid}<input type="hidden" name="id" value="${esc(a.id)}"><button type="submit" class="small" style="background:var(--accentbg);color:var(--accent)">🔁 Nouveau lien</button></form></p></details>` : ''}
+    <details><summary>📋 Relevé du mois à lui envoyer</summary><textarea readonly style="min-height:200px;font-size:14px">${esc(apporteursReleve(data, factures, a.id, todayIso))}</textarea><p class="note">Touche le texte, « Tout sélectionner », « Copier », puis colle-le dans WhatsApp ou Telegram. Il ne contient que ses boutiques et son rang.</p></details>
+    <details><summary>💶 Noter un versement</summary><form method="post" action="/apporteurs/verser">${hid}<input type="hidden" name="apporteur" value="${esc(a.id)}"><div class="grid2">${k.inp('montant', 'Montant (€)', '', { mode: 'decimal', ph: (Math.max(0, a.solde) / 100).toFixed(2).replace('.', ',') }).replace('id="montant"', `id="montant-${esc(a.id)}"`).replace('for="montant"', `for="montant-${esc(a.id)}"`)}<div class="f"><label for="mode-${esc(a.id)}">Comment</label><select id="mode-${esc(a.id)}" name="mode">${MODES.map(([kk, l]) => `<option value="${kk}">${esc(l)}</option>`).join('')}</select></div></div><div class="grid2"><div class="f"><label for="date-${esc(a.id)}">Le</label><input id="date-${esc(a.id)}" name="date" type="date" value="${esc(todayIso)}" max="${esc(todayIso)}"></div>${k.inp('note', 'Note (facultatif)', '', { max: 80 }).replace('id="note"', `id="note-${esc(a.id)}"`).replace('for="note"', `for="note-${esc(a.id)}"`)}</div><button type="submit">💶 Versé</button></form>
+     ${a.versements.length ? `<ul class="plain">${[...a.versements].reverse().map((v) => `<li class="row"><span>${esc(dfr(v.date))} · ${eur(v.montant)} · ${v.mode === 'avoir' ? 'avoir' : 'virement'}${v.note ? ` · ${esc(v.note)}` : ''}</span><form method="post" action="/apporteurs/verser/annuler">${hid}<input type="hidden" name="id" value="${esc(v.id)}"><button type="submit" class="small" style="background:var(--accentbg);color:var(--accent)">✖</button></form></li>`).join('')}</ul>` : ''}</details>
+    <details><summary>⚙️ Contrat, pause</summary><form method="post" action="/apporteurs/modifier">${hid}<input type="hidden" name="id" value="${esc(a.id)}"><div class="grid2"><div class="f"><label for="ct-${esc(a.id)}">Contrat d’apporteur</label><select id="ct-${esc(a.id)}" name="contrat"><option value="1"${a.contrat ? ' selected' : ''}>signé</option><option value="0"${a.contrat ? '' : ' selected'}>pas encore signé</option></select></div><div class="f"><label for="ac-${esc(a.id)}">État</label><select id="ac-${esc(a.id)}" name="actif"><option value="1"${a.actif ? ' selected' : ''}>actif</option><option value="0"${a.actif ? '' : ' selected'}>en pause</option></select></div></div>${k.inp('contact', 'Contact', a.contact, { max: 80 }).replace('id="contact"', `id="contact-${esc(a.id)}"`).replace('for="contact"', `for="contact-${esc(a.id)}"`)}<button type="submit">Enregistrer</button></form></details></section>`;
+  const ajout = `<form method="post" action="/apporteurs/ajouter">${hid}
+    <div class="grid2 stack">${k.inp('nom', 'Nom (ou nom de sa boutique)', '', { max: 60, ph: 'ex. Les Zaff' })}${k.inp('contact', 'Contact (Telegram, WhatsApp…)', '', { max: 80 })}</div>
+    <div class="grid2 stack"><div class="f"><label for="parrain">Présenté par (facultatif)</label><select id="parrain" name="parrain"><option value="">personne : apporteur direct (${TAUX.direct.join(' / ')} %)</option>${r.apporteurs.filter((a) => !a.parrain).map((a) => `<option value="${esc(a.id)}"${sent && sent.parrain === a.id ? ' selected' : ''}>${esc(a.nom)} (lui ${TAUX.second.join(' / ')} %, ${esc(a.nom)} ${TAUX.parrain.join(' / ')} %)</option>`).join('')}</select></div>
+     <div class="f"><label for="contrat">Contrat d’apporteur</label><select id="contrat" name="contrat"><option value="0">pas encore signé</option><option value="1"${sent && sent.contrat === '1' ? ' selected' : ''}>signé</option></select></div></div>
+    <div class="f"><label for="taux">Taux</label><select id="taux" name="taux">${TAUX_SPECIAUX.map(([kk, l]) => `<option value="${kk}"${sent && sent.taux === kk ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+    <details${sent && sent.objectif_clients ? ' open' : ''}><summary>🎁 Abonnement offert contre un objectif (Les Zaff)</summary>${r.apporteurs.some((x) => x.objectif && !x.objectifDe) ? `<div class="f"><label for="objectif_avec">Objectif commun avec (son associé)</label><select id="objectif_avec" name="objectif_avec"><option value="">non, son propre objectif ci-dessous</option>${r.apporteurs.filter((x) => x.objectif && !x.objectifDe).map((x) => `<option value="${esc(x.id)}">${esc(x.nom)}</option>`).join('')}</select></div>` : ''}<div class="grid2">${k.inp('objectif_clients', 'Boutiques payantes à amener', '', { mode: 'numeric', ph: '3', max: 2 })}${k.inp('objectif_avant', 'Avant le', '', { type: 'date' })}</div>${k.inp('offert_jusqua', 'Abonnement offert jusqu’au', '', { type: 'date' })}</details>
+    <button type="submit">➕ Ajouter l’apporteur</button></form>`;
+  const attribuer = actifs.length ? `<form method="post" action="/apporteurs/client">${hid}
+    <div class="grid2 stack"><div class="f"><label for="client">Boutique cliente (nom sur ses factures)</label><input id="client" name="client" list="clients-factures" maxlength="80" value="${esc(sent && sent.client ? sent.client : '')}" placeholder="tel qu’écrit sur la facture"><datalist id="clients-factures">${clientsFactures.map((n) => `<option value="${esc(n)}">`).join('')}</datalist></div>
+     <div class="f"><label for="apporteur">Apportée par</label><select id="apporteur" name="apporteur">${actifs.map((a) => `<option value="${esc(a.id)}"${sent && sent.apporteur === a.id ? ' selected' : ''}>${esc(a.nom)}</option>`).join('')}</select></div></div>
+    <div class="grid2">${k.inp('depuis', 'Apportée le', todayIso, { type: 'date' })}<div class="f" style="align-self:end"><button type="submit">🤝 Attribuer</button></div></div>
+    <p class="note">Le nom doit être exactement celui que tu mets sur ses factures : c’est ainsi que ses paiements sont retrouvés. Un client = un seul apporteur, le premier qui l’a présenté.</p></form>` : '<p class="note">Ajoute d’abord un apporteur (avec son contrat signé).</p>';
+  return layout('Apporteurs', '/apporteurs', `<section class="hero"><h1>🤝 Mes apporteurs</h1>
+   <p class="sub">Qui t’amène des boutiques, ce qu’ils gagnent (calculé tout seul à partir de tes factures payées), ce que tu leur as versé. Confidentiel : tout reste sur ton serveur.</p>
+   <div class="chips"><span class="chip">💶 À verser : ${eur(r.aVerserCeMois)}</span><span class="chip">🤝 ${actifs.length} apporteur${actifs.length > 1 ? 's' : ''} actif${actifs.length > 1 ? 's' : ''}</span><span class="chip">🏪 ${r.nbClients} boutique${r.nbClients > 1 ? 's' : ''} apportée${r.nbClients > 1 ? 's' : ''}</span></div></section>
+  ${facturesIllisibles ? '<div class="alert bad">Tes factures sont illisibles sur le serveur : les commissions affichées ici sont fausses (0 €) tant que ce n’est pas réparé. Dis-le à Claude.</div>' : ''}
+  ${message ? `<div class="alert ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}${message.ok ? '' : ' Ce que tu as tapé est encore là : corrige la case et recommence.'}</div>` : ''}
+  <div class="cards">
+   <section class="card wide"><h2>📜 Les règles (gravées)</h2><ul class="plain">
+    <li>Commission sur les lignes « Abonnement » <b>encaissées</b> seulement (jamais la création, les options, le conseil), due le mois suivant : ${TAUX.direct[0]} % la 1re année du client (comptée depuis son 1er paiement), ${TAUX.direct[1]} % la 2e, ${TAUX.direct[2]} % ensuite. Un remboursement rend exactement ce qui a été gagné.</li>
+    <li>Pause = plus de commission à partir du mois de la pause, plus de bonus. Un apporteur sans contrat signé ne gagne rien, même comme parrain.</li>
+    <li>Apporteur présenté par un apporteur : lui ${TAUX.second.join(' / ')} %, celui qui l’a présenté ${TAUX.parrain.join(' / ')} %. Jamais plus de ${TAUX.direct[0]} % au total.</li>
+    <li>Bonus du mois (dès ${BONUS_MIN_APPORTEURS} apporteurs actifs) : le n°1 en nouvelles boutiques payantes gagne +${BONUS_POINTS} points ce mois-là (partagés à parts égales en cas d’égalité, jamais sur la part de parrain) ${r.bonusActif ? '— <b>actif</b>' : '— pas encore actif'}.</li>
+    <li>Un versement se note ici, en avoir ou en virement (sur sa facture). Rien ne part tout seul.</li></ul></section>
+   <section class="card wide"><h2>🌐 Tableau de bord en ligne des apporteurs ${enLigne && enLigne.cle ? '<span class="badge ok">clé créée</span>' : '<span class="badge warn">à brancher</span>'}</h2>
+    <p class="note">Chaque apporteur voit sa page sur le site Vendix (démo) : signé, payé, en attente, en retard, sa commission, le classement. Le bot y envoie les chiffres à chaque changement et chaque heure.</p>
+    <form method="post" action="/apporteurs/enligne">${hid}${k.inp('url', 'Adresse du site Vendix', enLigne && enLigne.url ? enLigne.url : 'https://streetwear-demo.onrender.com', { max: 120 })}
+     ${enLigne && enLigne.cle ? `<div class="f"><label for="cle-enligne">La clé à coller sur le site (APPORTEURS_KEY)</label><textarea id="cle-enligne" readonly style="min-height:48px;font-size:14px">${esc(enLigne.cle)}</textarea></div><label style="display:flex;gap:8px;align-items:center;font-size:14px"><input type="checkbox" name="nouvelle" value="1"> Refaire une nouvelle clé (l’ancienne ne marchera plus : à recoller)</label>` : ''}
+     <button type="submit">${enLigne && enLigne.cle ? '💾 Enregistrer' : '🔑 Créer la clé'}</button></form>
+    ${enLigne && enLigne.cle ? `<details><summary>Où coller la clé (une seule fois, 2 min)</summary><ol style="padding-left:20px;font-size:14px"><li>Sur ton iPhone, ouvre dashboard.render.com, puis le service <b>streetwear-demo</b>.</li><li>Touche <b>Environment</b>, puis <b>Add Environment Variable</b>.</li><li>Dans « Key » tape <b>APPORTEURS_KEY</b> ; dans « Value » colle la clé ci-dessus ; <b>Save</b>. Le site redémarre tout seul (2 minutes).</li><li>Reviens ici : la ligne « dernier envoi » passe au vert au prochain changement (ou dans l’heure).</li></ol></details>` : ''}
+    ${enLigne && enLigne.dernier ? `<p class="${enLigne.ok ? 'alert ok' : 'alert bad'}">Dernier envoi : ${esc(enLigne.dernier)} — ${enLigne.ok ? 'reçu par le site' : esc(enLigne.erreur || 'refusé')}</p>` : ''}</section>
+   <section class="card wide"><h2>🏆 Classement</h2>${r.classement.length ? `<ol style="margin:0;padding-left:22px">${r.classement.map((c) => `<li>${esc(c.nom)} — ${c.payants} boutique${c.payants > 1 ? 's' : ''} payante${c.payants > 1 ? 's' : ''}</li>`).join('')}</ol>` : '<p class="note">Personne pour l’instant.</p>'}</section>
+   ${r.apporteurs.map(card).join('')}
+   <section class="card wide"><h2>🏪 Attribuer une boutique à un apporteur</h2>${attribuer}</section>
+   <section class="card wide"><h2>➕ Nouvel apporteur</h2>${ajout}</section>
+  </div>`);
 }
 
 const ACCES_JS = `

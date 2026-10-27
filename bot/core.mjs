@@ -18,6 +18,14 @@ const pickMarkup = (sel) => ({ inline_keyboard: [...byRank(Object.keys(PROJECTS)
 const LONG = 1500; // above this, a note is a document: the bot never files it alone
 const DAY = 86400e3;
 const hashOf = (t) => createHash('sha256').update(normalize(t).replace(/\s+/g, ' ').trim()).digest('hex').slice(0, 16);
+// Near-duplicates: each word kept as a short hash (the server memory never holds the note's words), compared by overlap.
+export const wordsOf = (t) => [...new Set(normalize(t).replace(/\[[^\]]*\]/g, ' ').split(/[^a-z0-9]+/).filter((w) => w.length > 1))].map((w) => createHash('sha256').update(w).digest('hex').slice(0, 8));
+export function similarity(a, b) {
+  if (!a.length || !b.length) return 0;
+  const B = new Set(b); const common = a.filter((w) => B.has(w)).length;
+  return common / (a.length + b.length - common);
+}
+export const NEAR = 0.75, NEAR_MIN_WORDS = 4; // one typo in a 9-word note still matches
 const excerpt = (t, n) => t.replace(/\s+/g, ' ').trim().slice(0, n);
 
 // Ask instead of guessing when the note is long, unknown, or about several projects.
@@ -85,7 +93,7 @@ export function createCore({ edit = null, memoryStore = null, extraWords = () =>
     } else r = await write(project, `- ${at} — ${b.text}`, meta);
     const where = project === 'tous' ? 'tous les projets (texte complet dans Cockpit)' : PROJECTS[project].label;
     const sent = await send(chat, `Noté pour ${where}${project !== 'tous' && text.length > LONG ? ' (texte long rangé en fichier)' : ''}.${b.flags.length ? ` ⚠️ J’y ai joint un avertissement : ${b.flags.join(', ')}.` : ''}${r && r.synced ? '' : LATER}`, { reply_markup: REROUTE });
-    memory.seen[hashOf(text)] = { t: now().getTime(), at, project };
+    memory.seen[hashOf(text)] = { t: now().getTime(), at, project, w: wordsOf(text) };
     if (sent && sent.message_id) memory.filed[sent.message_id] = { project, text, at };
     persistMemory();
   }
@@ -103,7 +111,7 @@ export function createCore({ edit = null, memoryStore = null, extraWords = () =>
       const r = await write(k, `- ${at} — [aussi envoyé à : ${others} ; chacun ne traite que sa part] ${b.text}`, meta);
       ok = ok && r && r.synced;
     }
-    memory.seen[hashOf(text)] = { t: now().getTime(), at, project: keys[0] }; persistMemory();
+    memory.seen[hashOf(text)] = { t: now().getTime(), at, project: keys[0], w: wordsOf(text) }; persistMemory();
     await send(chat, `Noté pour ${labels.join(', ')} (dans l’ordre de tes priorités).${b.flags.length ? ` ⚠️ Avertissement joint : ${b.flags.join(', ')}.` : ''}${ok ? '' : LATER}`);
   }
 
@@ -114,12 +122,31 @@ export function createCore({ edit = null, memoryStore = null, extraWords = () =>
     pending.set(sent.message_id, moved ? { text, moved, sug } : { text, sug }); persistPending();
   }
 
-  async function route(text, chat) {
+  const where = (p) => (p === 'tous' ? 'tous les projets' : PROJECTS[p] ? PROJECTS[p].label : 'un projet');
+  // The closest note of the last 7 days, if Sam's new note is almost the same (a few words changed).
+  function nearest(text) {
+    const w = wordsOf(text); if (w.length < NEAR_MIN_WORDS) return null;
+    const since = now().getTime() - 7 * DAY; let best = null;
+    for (const s of Object.values(memory.seen)) {
+      if (!s.w || s.w.length < NEAR_MIN_WORDS || s.t < since) continue;
+      const score = similarity(w, s.w);
+      if (score >= NEAR && (!best || score > best.score)) best = { ...s, score };
+    }
+    return best;
+  }
+
+  async function route(text, chat, checked = false) {
     const seen = memory.seen[hashOf(text)];
-    if (seen && now().getTime() - seen.t < 7 * DAY) return send(chat, `Déjà reçu le ${seen.at} et rangé dans ${seen.project === 'tous' ? 'tous les projets' : PROJECTS[seen.project].label}. Je ne le range pas une deuxième fois. Si c’est voulu, ajoute un mot et renvoie-le.`);
+    if (seen && now().getTime() - seen.t < 7 * DAY) return send(chat, `Déjà reçu le ${seen.at} et rangé dans ${where(seen.project)}. Je ne le range pas une deuxième fois. Si c’est voulu, ajoute un mot et renvoie-le.`);
     if (STATUS.test(text.trim()) && extra['/projets']) return extra['/projets'](chat, '');
     const h = hashOf(text);
     if ([...pending.values()].some((v) => hashOf(entryOf(v).text) === h)) return send(chat, 'J’attends déjà ton choix pour ce texte : touche un bouton dans ma question plus haut.');
+    const near = checked ? null : nearest(text);
+    if (near) {
+      const sent = await send(chat, `Ta note ressemble beaucoup à celle du ${near.at}, rangée dans ${where(near.project)}. Je la range quand même ?`, { reply_markup: { inline_keyboard: [[{ text: '✅ Oui, la ranger', callback_data: 'd:y' }, { text: '❌ Non, c’est un doublon', callback_data: 'd:n' }]] } });
+      pending.set(sent.message_id, { text, dup: true }); persistPending();
+      return;
+    }
     const c = choice(text, extraWords());
     if (!c.ask) return file(c.project, text, chat);
     return ask(text, chat, c);
@@ -164,6 +191,13 @@ export function createCore({ edit = null, memoryStore = null, extraWords = () =>
           return { answer: cq.id };
         }
         const raw = pending.get(id) || pending.get(String(id));
+        if (raw && entryOf(raw).dup && (cq.data === 'd:y' || cq.data === 'd:n')) {
+          pending.delete(id); pending.delete(String(id)); persistPending();
+          if (cq.data === 'd:n') await send(chat, 'D’accord, je ne la range pas.');
+          else await route(entryOf(raw).text, chat, true);
+          return { answer: cq.id };
+        }
+        if (raw && entryOf(raw).dup) return { answer: cq.id };
         // « Plusieurs… » : Sam ticks the projects; each one gets the note, in his priority order.
         if (raw && (cq.data === 'm' || String(cq.data).startsWith('t:') || cq.data === 'go')) {
           const note = entryOf(raw); const sel = note.sel || (cq.data === 'm' ? note.sug || [] : []);

@@ -13,6 +13,7 @@ import { PROJECTS, normalize } from './classify.mjs';
 import { findSecret } from './secrets.mjs';
 import { createQueue, itemFor, createDeliver } from './queue.mjs';
 import { evaluate, alertTick } from './alerts.mjs';
+import { exportPublic } from './apporteurs.mjs';
 import { synthese, attentes } from './projets.mjs';
 import { parseSums, coffreChange, avertissementMaj, COFFRE_FILES, ECRAN_FILES } from './integrite.mjs';
 import { purgeNotes, purgeLog } from './purge.mjs';
@@ -46,15 +47,22 @@ const localVersion = () => readText(new URL('./VERSION', import.meta.url));
 const APP_DIR = env.APP_DIR || '/opt/cockpit-app';
 async function coffreWarning() {
   try {
-    const r = await fetch(`${RAW}/SHA256SUMS?t=${Date.now()}`, { headers: { 'cache-control': 'no-cache' }, signal: AbortSignal.timeout(10e3) });
+    const r = await srvGet('SHA256SUMS');
     const remote = r.ok ? parseSums(await r.text()) : {};
     const local = {};
     for (const f of [...COFFRE_FILES, ...ECRAN_FILES]) { try { local[f] = crypto.createHash('sha256').update(await fs.readFile(path.join(APP_DIR, f))).digest('hex'); } catch { /* missing = changed */ } }
     return avertissementMaj(coffreChange(remote, local), coffreChange(remote, local, ECRAN_FILES));
   } catch { return avertissementMaj(null); }
 }
+// srv may be private (C-115): the server's GitHub token goes along; without it (or refused), a plain try.
+async function srvGet(file) {
+  const token = await readText(path.join(SECRETS, 'github'));
+  const url = `${RAW}/${file}?t=${Date.now()}`;
+  if (token) { const r = await fetch(url, { headers: { 'cache-control': 'no-cache', authorization: `token ${token}` }, signal: AbortSignal.timeout(10e3) }).catch(() => null); if (r && r.ok) return r; }
+  return fetch(url, { headers: { 'cache-control': 'no-cache' }, signal: AbortSignal.timeout(10e3) });
+}
 async function remoteVersion() {
-  const r = await fetch(`${RAW}/VERSION?t=${Date.now()}`, { headers: { 'cache-control': 'no-cache' }, signal: AbortSignal.timeout(10e3) });
+  const r = await srvGet('VERSION');
   return r.ok ? (await r.text()).trim() : '';
 }
 
@@ -88,6 +96,8 @@ const DOMAIN_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 const verifier = async (kind, arg) => {
   if (kind === 'maj') { const [here, there] = [await localVersion(), await remoteVersion()]; return !!here && here === there; }
   if (kind === 'coffre') return fsSync.existsSync(path.join(STATE, 'data', 'coffre-vault.json'));
+  // A repository is private when GitHub answers « not found » to a visitor without a token.
+  if (kind === 'prive') { if (!/^[A-Za-z0-9_.-]{1,100}$/.test(String(arg))) return false; const r = await fetch(`https://api.github.com/repos/${env.GITHUB_OWNER || 'sammiquelconseil-droid'}/${arg}`, { signal: AbortSignal.timeout(10e3) }); return r.status === 404; }
   if (kind === 'ns') {
     const [dom, want] = String(arg).toLowerCase().split('=');
     if (!DOMAIN_RE.test(dom || '') || !DOMAIN_RE.test(want || '')) return false;
@@ -243,7 +253,7 @@ const purgeLocal = (todayIso) => {
 setInterval(async () => {
   const owner = core.ownerId; if (!owner) return;
   const todayIso = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
-  const current = evaluate({ sante: await readJson(path.join(STATE, 'sante.json'), null), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json'), null), ficheRappel: state.ficheRappel, todayIso, dossier: await readJson(path.join(STATE, 'data', 'situation.json'), null), prospects: await readJson(path.join(STATE, 'data', 'prospects.json'), null), coffre: await readJson(path.join(STATE, 'data', 'coffre.json'), null), integrite: await readJson(path.join(STATE, 'integrite.json'), null), integriteInstalle: fsSync.existsSync('/etc/systemd/system/cockpit-integrite.timer') });
+  const current = evaluate({ sante: await readJson(path.join(STATE, 'sante.json'), null), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json'), null), ficheRappel: state.ficheRappel, todayIso, dossier: await readJson(path.join(STATE, 'data', 'situation.json'), null), prospects: await readJson(path.join(STATE, 'data', 'prospects.json'), null), coffre: await readJson(path.join(STATE, 'data', 'coffre.json'), null), integrite: await readJson(path.join(STATE, 'integrite.json'), null), micro: await readJson(path.join(STATE, 'data', 'micro.json'), null), factures: await readJson(path.join(STATE, 'data', 'factures.json'), null), apporteurs: await readJson(path.join(STATE, 'data', 'apporteurs.json'), null), integriteInstalle: fsSync.existsSync('/etc/systemd/system/cockpit-integrite.timer') });
   if (queue.size >= 3) current.push({ cause: 'github', level: 'critique', text: `${queue.size} notes n’arrivent pas sur GitHub (jeton expiré ?). Elles sont gardées sur le serveur.` });
   await alertTick({ current, state, send: (m) => tg.send(owner, m), log });
   try { purgeLocal(todayIso); } catch (e) { await log(`purge: ${e.message}`); }
@@ -252,6 +262,30 @@ setInterval(async () => {
 setTimeout(() => refreshDecisions(), 20e3);
 // The « À faire par toi » list follows the projects' files and the checks above every 5 minutes (a few small reads).
 setInterval(() => refreshDecisions(), 300e3);
+
+// 🤝 Apporteurs' online dashboards: after each change (marker written by the app) and every hour, the figures of
+// every active apporteur go to the Vendix demo site with the shared key (C-120). Nothing is sent without a key.
+const APPORTEURS_CLE = path.join(SECRETS, 'apporteurs'), APPORTEURS_SYNC = path.join(STATE, 'apporteurs-sync-demandee');
+async function syncApporteurs(force = false) {
+  const conf = await readJson(APPORTEURS_CLE, null); if (!conf || !conf.url || !conf.cle) return;
+  if (!force && !fsSync.existsSync(APPORTEURS_SYNC)) return;
+  const data = await readJson(path.join(STATE, 'data', 'apporteurs.json'), null); if (!data || !Array.isArray(data.apporteurs)) return;
+  const factures = await readJson(path.join(STATE, 'data', 'factures.json'), { factures: [] });
+  const todayIso = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
+  const body = JSON.stringify(exportPublic(data, factures, todayIso));
+  let ok = false, erreur = '';
+  try {
+    const r = await fetch(`${conf.url}/apporteurs/sync`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-apporteurs-key': conf.cle }, body, signal: AbortSignal.timeout(20e3) });
+    ok = r.ok; if (!ok) erreur = r.status === 403 ? 'clé refusée par le site (recolle-la)' : r.status === 404 ? 'clé pas encore posée sur le site' : `réponse ${r.status}`;
+  } catch (e) { erreur = 'site injoignable'; }
+  const dernier = new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' });
+  await fs.writeFile(APPORTEURS_CLE + '.tmp', JSON.stringify({ ...conf, dernier, ok, erreur }), { mode: 0o600 }); await fs.rename(APPORTEURS_CLE + '.tmp', APPORTEURS_CLE);
+  if (ok) fsSync.rmSync(APPORTEURS_SYNC, { force: true });
+  await log(`apporteurs sync: ${ok ? 'ok' : erreur}`);
+}
+setTimeout(() => syncApporteurs(true).catch(() => {}), 60e3);
+setInterval(() => syncApporteurs(true).catch(() => {}), 3600e3);
+setInterval(() => syncApporteurs(false).catch(() => {}), 120e3);
 
 let offset = state.offset || 0;
 for (;;) {

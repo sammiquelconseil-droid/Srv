@@ -165,6 +165,16 @@ systemctl enable --now cockpit-sauvegarde-demandee.path > /dev/null
 
 # --- Application Cockpit (écrans) ----------------------------------------------------------
 RAW=https://raw.githubusercontent.com/sammiquelconseil-droid/srv/main
+# Dépôt srv privé (C-115) : jeton du serveur dans un en-tête lu depuis un fichier, puis essai sans (dépôt encore public).
+HDR=$(mktemp); chmod 600 "$HDR"; trap 'rm -f "$HDR"' EXIT
+tok=$(tr -d '[:space:]' < /var/lib/cockpit/secrets/github 2> /dev/null || true)
+[ -n "$tok" ] && printf 'Authorization: token %s\n' "$tok" > "$HDR"; tok=""
+get() { curl -fsSL -H 'Cache-Control: no-cache' -H @"$HDR" "$RAW/$1" -o "$2" 2> /dev/null || curl -fsSL -H 'Cache-Control: no-cache' "$RAW/$1" -o "$2"; }
+# Le script /maj lui-même (il tourne en ce moment : on écrit un nouveau fichier puis on le met à sa place,
+# l'ancien reste lisible jusqu'à la fin de cette mise à jour).
+if get maj /usr/local/sbin/cockpit-maj.new && bash -n /usr/local/sbin/cockpit-maj.new; then
+  chmod 755 /usr/local/sbin/cockpit-maj.new; mv -f /usr/local/sbin/cockpit-maj.new /usr/local/sbin/cockpit-maj
+else rm -f /usr/local/sbin/cockpit-maj.new; fi
 install -d -m 755 "${APP_DIR:-/opt/cockpit-app}/app" "${APP_DIR:-/opt/cockpit-app}/src"
 install -d -m 750 -o cockpit -g cockpit /var/lib/cockpit/data
 # Coffre (papiers de Sam) : fichiers chiffrés par l'appli dans /var/lib/cockpit/coffre ; leur clé est rangée hors du
@@ -174,10 +184,10 @@ if [ ! -f /etc/cockpit/coffre.key ]; then (umask 077; head -c 32 /dev/urandom > 
 chown root:cockpit /etc/cockpit/coffre.key; chmod 640 /etc/cockpit/coffre.key
 APP=${APP_DIR:-/opt/cockpit-app}
 stage=$(mktemp -d); mkdir -p "$stage/app" "$stage/src"
-curl -fsSL -H 'Cache-Control: no-cache' "$RAW/cockpit-app/FILES" -o "$stage/FILES"
+get cockpit-app/FILES "$stage/FILES"
 while read -r f; do
   [[ "$f" =~ ^(app|src)/[a-z]+\.mjs$ ]] || { echo "liste invalide : $f"; exit 1; }
-  curl -fsSL -H 'Cache-Control: no-cache' "$RAW/cockpit-app/$f" -o "$stage/$f"
+  get "cockpit-app/$f" "$stage/$f"
   node --check "$stage/$f"   # vérifié sous son vrai nom (.mjs), sinon Node refuse l'extension
 done < "$stage/FILES"
 # Alarme d'intégrité (C-113) : empreintes des fichiers que /maj installe, gardées par root seul. Chaque heure, root
@@ -194,7 +204,7 @@ for f in "$APP"/app/*.mjs "$APP"/src/*.mjs; do grep -qxF "${f#"$APP"/}" "$stage/
 mv -f /var/lib/cockpit-integrite/attendu.tmp /var/lib/cockpit-integrite/attendu
 rm -f /var/lib/cockpit-integrite/maj-interrompue
 trap - ERR
-rm -rf "$stage"
+rm -rf "$stage" "$HDR"
 flock -u 8
 cat > /usr/local/sbin/cockpit-integrite <<'SH'
 #!/usr/bin/env bash

@@ -17,3 +17,7 @@ coffre.mjs
 faits.mjs
 integrite.mjs
 purge.mjs
+micro.mjs
+factures.mjs
+pdf.mjs
+apporteurs.mjs
