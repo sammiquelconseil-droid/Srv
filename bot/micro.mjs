@@ -10,12 +10,12 @@ export const ACTIVITES = [
   ['bic', 'Vendix (boutiques en ligne)', 'prestations de services commerciales (BIC)', '2026-11'],
 ];
 export const PARAMS = {
-  taux: { bnc: { pct: 25.6, statut: 'a_verifier' }, bic: { pct: 21.2, statut: 'a_verifier' } },
+  taux: { bnc: { pct: 25.6, statut: 'verifie' }, bic: { pct: 21.2, statut: 'verifie' } }, // service-public F36232, lu le 05/11/2026
   // Contribution à la formation professionnelle, collected with the cotisations: 0,2 % libéral, 0,1 % commerçant.
   formation: { bnc: 0.2, bic: 0.1, statut: 'a_verifier' },
   // Prudence chosen in LeadGen's KIT §5 (45,6 % = 25,6 % of cotisations + 20 % for income tax): a choice, not a tax computation.
   provisionImpotPct: 20,
-  plafondMicro: { cents: 8360000, statut: 'a_verifier' },
+  plafondMicro: { cents: 8360000, statut: 'verifie' }, // service-public F23267, lu le 05/11/2026
   // Orange at 80 % of 37 500 €. (The « 90 % of 41 250 € » level of the parameters is 37 125 €, under 37 500 €: it is
   // folded into « rouge », whose text names both thresholds.)
   tva: { baseCents: 3750000, majoreCents: 4125000, statut: 'verifie', orangePct: 80 },

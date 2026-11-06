@@ -19,11 +19,17 @@ export const MENTIONS = {
 };
 export const ECHEANCES = [['0', 'À réception'], ['15', 'Sous 15 jours'], ['30', 'Sous 30 jours']];
 export const LIGNES = 5;
-// Ready-made wordings (Vendix offers, Les Zaff OFFRES.md): suggestions only, Sam types the price.
+// Ready-made wordings (grid of 01/11, Les Zaff OFFRES.md; portfolio tools on quote): suggestions only, Sam types
+// the price. The shop creation is always invoiced (290 €, never « offerte »). Only lines starting with « Abonnement »
+// earn an apporteur commission (src/apporteurs.mjs estAbonnement): deposits, balances, sites and « Suivi » never do.
 export const SUGGESTIONS = [
+  'Création de la boutique Vendix (une fois)',
   ...['Boutique', 'Croissance', 'Premium', 'Max'].map((f) => `Abonnement Vendix, formule ${f}, mois de `),
-  ...['Boutique', 'Croissance', 'Premium', 'Max'].map((f) => `Création de la boutique, formule ${f} (offerte)`),
-  'Option Vendix : ', 'Conseil en automatisation, ', 'Apport d’affaires : ',
+  'Option Vendix : ',
+  'Acompte de 50 % sur le devis n° ', 'Solde du devis n° ',
+  'Site vitrine, devis n° ', 'Outil de réservation avec acompte, devis n° ', 'Automatisation sur mesure, devis n° ',
+  'Suivi « je m’en occupe », site, mois de ', 'Suivi « je m’en occupe », réservation, mois de ',
+  'Conseil en automatisation, ', 'Apport d’affaires : ',
 ];
 const DEBUT_ACTIVITE = '2026-10-13';
 

@@ -5,15 +5,15 @@ import path from 'node:path';
 import { summarize, upcoming } from '../src/patrimoine.mjs';
 import { upcomingDeadlines } from '../src/echeancier.mjs';
 import { budget } from '../src/budget.mjs';
-import { parseProspectsForm } from '../src/prospects.mjs';
-import { rattachements, compterPar } from '../src/coffre.mjs';
+import { parseProspectsForm, aRelancer } from '../src/prospects.mjs';
+import { rattachements, compterPar, aFaire } from '../src/coffre.mjs';
 import { cleTache, lireFaits, marquer, retirer, sansFaits, CLE_RE } from '../src/faits.mjs';
 import { parseMicroForm, resume as microResume } from '../src/micro.mjs';
 import * as factures from '../src/factures.mjs';
 import * as apporteurs from '../src/apporteurs.mjs';
 import { addDoc, editDoc, readDoc, readIndex, readKey, readVerifier, vaultState, setVault, replaceV1, parseMultipart, MAX_FILE } from './coffre.mjs';
 import crypto from 'node:crypto';
-import { todayPage, patrimoinePage, chiffresPage, microPage, facturesPage, apporteursPage, accesPage, errorPage, sauvegardesPage, dossierPage, prospectsPage, coffrePage, coffreViewPage } from './views.mjs';
+import { hubPage, allerPage, chercher, todayPage, patrimoinePage, chiffresPage, microPage, facturesPage, apporteursPage, accesPage, errorPage, sauvegardesPage, dossierPage, prospectsPage, coffrePage, coffreViewPage } from './views.mjs';
 import { emptyDossier, parseDossierForm, removeBien, writeDossier, readDossier, parseEuros } from './dossier.mjs';
 import { pendingKey, testBackup, storeGithubToken } from './sauvegarde.mjs';
 import { createAuth, createSessions, parseCookies } from './auth.mjs';
@@ -116,6 +116,50 @@ function takeCode(code) {
   return ok;
 }
 
+// Badges of the menu: counts only (never an amount, never a name), read at each page. A file that cannot be read counts 0.
+export async function navCounts(asOf = todayIso()) {
+  try { return await lireCompteurs(asOf); } catch { return {}; } // a damaged file must never close every page: no badge instead
+}
+async function lireCompteurs(asOf) {
+  const att = sansFaits(await readJson(path.join(STATE, 'decisions.json')), lireFaits(await readJson(FAITS)));
+  const f = await readFactures().catch(() => ({ etat: 'illisible' }));
+  const c = await readIndex(COFFRE_INDEX).catch(() => ({ list: [] }));
+  const p = await readProspects().catch(() => ({ list: [] }));
+  return {
+    accueil: (att && att.total) || 0,
+    argent: f.etat === 'ok' ? factures.resumeFactures(f.data, asOf).enRetard.length : 0,
+    papiers: aFaire(c.list || []).length,
+    vendre: aRelancer(p.list || [], asOf).length,
+  };
+}
+// One short state per tile of a hub page (behind Face ID like the pages themselves).
+async function hubEtats(url, data, asOf, nav) {
+  const s = (n) => (n > 1 ? 's' : '');
+  const jour = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
+  if (url === '/argent') {
+    const f = await readFactures(); const r = f.etat === 'ok' ? factures.resumeFactures(f.data, asOf) : null;
+    const m = await readMicro(); const mr = m.etat === 'ok' ? microResume(m.data, asOf, f.etat === 'ok' ? factures.encaissements(f.data) : null) : null;
+    const decl = mr ? mr.mois.filter((x) => x.aDeclarer && x.echeance).map((x) => x.echeance).sort()[0] : null;
+    const a = await readApporteurs();
+    const actifs = a.etat === 'ok' ? (a.data.apporteurs || []).filter((x) => x.actif).length : 0;
+    const prive = (await readJson(PRIVE)) || {};
+    return {
+      '/factures': r ? (r.enRetard.length ? { texte: `${r.enRetard.length} en retard`, warn: true, n: r.enRetard.length } : { texte: r.nbOuvertes ? `${r.nbOuvertes} à encaisser` : 'Rien à encaisser' }) : { texte: 'Illisible : dis-le à Claude', warn: true },
+      '/micro': m.etat === 'illisible' ? { texte: 'Illisible : dis-le à Claude', warn: true } : decl ? { texte: `Prochaine déclaration avant le ${jour(decl)}` } : {},
+      '/apporteurs': a.etat === 'illisible' ? { texte: 'Illisible : dis-le à Claude', warn: true } : { texte: actifs ? `${actifs} apporteur${s(actifs)} actif${s(actifs)}` : 'Aucun apporteur actif' },
+      '/mes-chiffres': prive.salaire ? { texte: 'Salaire saisi' } : { texte: 'Salaire à saisir', warn: true },
+    };
+  }
+  const c = await readIndex(COFFRE_INDEX).catch(() => ({ list: [] }));
+  const b = await readJson(path.join(STATE, 'sauvegarde.json'));
+  const nbiens = (data.biens || []).length;
+  return {
+    '/coffre': { texte: (c.list || []).length ? `${(c.list || []).length} papier${s((c.list || []).length)}${nav.papiers ? ` · ${nav.papiers} à faire` : ''}` : 'Aucun papier rangé', warn: nav.papiers > 0 },
+    '/dossier': nbiens ? { texte: `${nbiens} bien${s(nbiens)}` } : { texte: 'Vide : à remplir', warn: true },
+    '/sauvegardes': b ? (b.distant ? { texte: `Dernière le ${new Date(b.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', timeZone: 'Europe/Paris' })}` } : { texte: 'Copie hors serveur absente', warn: true }) : { texte: 'Pas encore de sauvegarde', warn: true },
+  };
+}
+
 export async function render(url, opts = {}) {
   // The dossier lives on this server only (C-094). Missing or empty = the screens still open, with an invitation to fill it.
   const { etat, data } = await readDossier(DATA);
@@ -123,12 +167,13 @@ export async function render(url, opts = {}) {
   const vide = !data.biens.length;
   const asOf = todayIso();
   const summary = summarize(data, asOf);
+  const nav = await navCounts(asOf);
   if (url === '/') {
     const alertes = summary.biens.flatMap((b) => (b.alertes || []).map((a) => `${b.nom} : ${a}`));
     if (vide) alertes.push('Ton dossier (biens, crédits, loyers) est vide : remplis-le sur la page Dossier. Il reste sur ton serveur.');
-    return [200, todayPage({ now: new Date(), sante: await readJson(path.join(STATE, 'sante.json')), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json')), notes: await lastNotes(), echeances: upcoming(summary, asOf), fiscal: upcomingDeadlines(asOf, 45), alertes, attentes: sansFaits(await readJson(path.join(STATE, 'decisions.json')), lireFaits(await readJson(FAITS))), token: FORM_TOKEN, micro: microResume((await readMicro()).data, asOf, factures.encaissements((await readFactures()).data)), factures: factures.resumeFactures((await readFactures()).data, asOf), budget: budget(data, summary, (await readJson(PRIVE)) || {}) })];
+    return [200, todayPage({ nav, now: new Date(), sante: await readJson(path.join(STATE, 'sante.json')), sauvegarde: await readJson(path.join(STATE, 'sauvegarde.json')), notes: await lastNotes(), echeances: upcoming(summary, asOf), fiscal: upcomingDeadlines(asOf, 45), alertes, attentes: sansFaits(await readJson(path.join(STATE, 'decisions.json')), lireFaits(await readJson(FAITS))), token: FORM_TOKEN, micro: microResume((await readMicro()).data, asOf, factures.encaissements((await readFactures()).data)), factures: factures.resumeFactures((await readFactures()).data, asOf), budget: budget(data, summary, (await readJson(PRIVE)) || {}) })];
   }
-  if (url === '/patrimoine') return [200, patrimoinePage({ summary, asOf, vide, papiers: compterPar((await readIndex(COFFRE_INDEX)).list) })];
+  if (url === '/patrimoine') return [200, patrimoinePage({ nav, summary, asOf, vide, papiers: compterPar((await readIndex(COFFRE_INDEX)).list) })];
   if (url === '/coffre') {
     const { etat: ce, list } = await readIndex(COFFRE_INDEX);
     if (ce === 'illisible') return [500, errorPage('La liste de ton coffre est présente mais illisible. Je ne l’affiche pas et rien ne peut l’écraser : dis-le à Claude, la dernière sauvegarde la contient.')];
@@ -137,36 +182,43 @@ export async function render(url, opts = {}) {
     const filtre = { r: places.some(([k]) => k === q.r) ? q.r : '', afaire: q.afaire === '1' };
     const distant = ((await readJson(path.join(STATE, 'coffre-distant.json'))) || {}).ids;
     const nonce = crypto.randomBytes(16).toString('base64url');
-    return [200, coffrePage({ index: list, places, filtre, token: FORM_TOKEN, message: opts.message, sent: opts.message && !opts.message.ok ? opts.fields : null, distant: Array.isArray(distant) ? distant.filter((id) => list.some((d) => d.id === id)).length : null, cle: !!(await readKey(COFFRE_KEY)), todayIso: asOf, nonce, script: CLIENT_JS, verif: (await readVerifier(COFFRE_VERIF)) || '', vaultInfo: await vaultState(COFFRE_VAULT), indice: await readIndice() }), withScript(nonce)];
+    return [200, coffrePage({ nav, index: list, places, filtre, token: FORM_TOKEN, message: opts.message, sent: opts.message && !opts.message.ok ? opts.fields : null, distant: Array.isArray(distant) ? distant.filter((id) => list.some((d) => d.id === id)).length : null, cle: !!(await readKey(COFFRE_KEY)), todayIso: asOf, nonce, script: CLIENT_JS, verif: (await readVerifier(COFFRE_VERIF)) || '', vaultInfo: await vaultState(COFFRE_VAULT), indice: await readIndice() }), withScript(nonce)];
   }
-  if (url === '/dossier') return [200, dossierPage({ data, token: FORM_TOKEN, message: opts.message, vide, sent: opts.message && !opts.message.ok ? opts.fields : null, dernieres: Object.fromEntries(summary.biens.filter((b) => b.end).map((b) => [b.id, b.end])) })];
+  if (url === '/dossier') return [200, dossierPage({ nav, data, token: FORM_TOKEN, message: opts.message, vide, sent: opts.message && !opts.message.ok ? opts.fields : null, dernieres: Object.fromEntries(summary.biens.filter((b) => b.end).map((b) => [b.id, b.end])) })];
   if (url === '/prospects') {
     const { etat: pe, list } = await readProspects();
     if (pe === 'illisible') return [500, errorPage('Ta liste de prospects est présente mais illisible. Je ne l’affiche pas et rien ne peut l’écraser : dis-le à Claude, la dernière sauvegarde la contient.')];
-    return [200, prospectsPage({ list, token: FORM_TOKEN, message: opts.message, sent: opts.message && !opts.message.ok ? opts.fields : null, todayIso: asOf })];
+    return [200, prospectsPage({ nav, list, token: FORM_TOKEN, message: opts.message, sent: opts.message && !opts.message.ok ? opts.fields : null, todayIso: asOf })];
   }
-  if (url === '/mes-chiffres') return [200, chiffresPage({ data, prive: await readJson(PRIVE), token: FORM_TOKEN, message: opts.message })];
+  if (url === '/mes-chiffres') return [200, chiffresPage({ nav, data, prive: await readJson(PRIVE), token: FORM_TOKEN, message: opts.message })];
   if (url === '/micro') {
     const m = await readMicro();
     if (m.etat === 'illisible') return [500, errorPage('Tes montants de micro-entreprise sont présents mais illisibles. Je ne les affiche pas et rien ne peut les écraser : dis-le à Claude, la dernière sauvegarde les contient.')];
-    return [200, microPage({ data: m.data, enc: factures.encaissements((await readFactures()).data), todayIso: asOf, token: FORM_TOKEN, message: opts.message, sent: opts.fields })];
+    return [200, microPage({ nav, data: m.data, enc: factures.encaissements((await readFactures()).data), todayIso: asOf, token: FORM_TOKEN, message: opts.message, sent: opts.fields })];
   }
   if (url === '/factures') {
     const f = await readFactures();
     if (f.etat === 'illisible') return [500, errorPage('Tes factures sont présentes sur le serveur mais illisibles. Je ne les affiche pas et rien ne peut les écraser : dis-le à Claude, la dernière sauvegarde les contient.')];
-    return [200, facturesPage({ data: f.data, todayIso: asOf, token: FORM_TOKEN, message: opts.message, sent: opts.message && !opts.message.ok ? opts.fields : null })];
+    return [200, facturesPage({ nav, data: f.data, todayIso: asOf, token: FORM_TOKEN, message: opts.message, sent: opts.message && !opts.message.ok ? opts.fields : null })];
   }
   if (url === '/apporteurs') {
     const a = await readApporteurs(); const f = await readFactures();
     if (a.etat === 'illisible') return [500, errorPage('Tes apporteurs sont présents sur le serveur mais illisibles. Je ne les affiche pas et rien ne peut les écraser : dis-le à Claude, la dernière sauvegarde les contient.')];
-    return [200, apporteursPage({ data: a.data, factures: f.etat === 'ok' ? f.data : factures.empty(), facturesIllisibles: f.etat === 'illisible', todayIso: asOf, token: FORM_TOKEN, message: opts.message, sent: opts.message && !opts.message.ok ? opts.fields : null, enLigne: await readJson(APPORTEURS_CLE) })];
+    return [200, apporteursPage({ nav, data: a.data, factures: f.etat === 'ok' ? f.data : factures.empty(), facturesIllisibles: f.etat === 'illisible', todayIso: asOf, token: FORM_TOKEN, message: opts.message, sent: opts.message && !opts.message.ok ? opts.fields : null, enLigne: await readJson(APPORTEURS_CLE) })];
   }
   if (url === '/sauvegardes') {
     // Without Face ID configured (RP_ID empty) nothing is session-protected: the key is then never shown.
     const key = auth ? await pendingKey(KEY_FILE) : null;
     const tested = !!key && fsSync.existsSync(KEY_TESTED);
     const message = opts.message || (!auth && (await pendingKey(KEY_FILE)) ? { ok: false, text: 'Une clé attend, mais Face ID n’est pas activé sur cet écran : je ne l’affiche pas. Dis à Claude « activer le cadenas ».' } : undefined);
-    return [200, sauvegardesPage({ key, tested, token: FORM_TOKEN, message, backup: await readJson(path.join(STATE, 'sauvegarde.json')) })];
+    return [200, sauvegardesPage({ nav, key, tested, token: FORM_TOKEN, message, backup: await readJson(path.join(STATE, 'sauvegarde.json')) })];
+  }
+  if (url === '/argent' || url === '/papiers') return [200, hubPage(url === '/argent' ? 'argent' : 'papiers', { nav, etats: await hubEtats(url, data, asOf, nav).catch(() => ({})) })];
+  if (url === '/aller') {
+    const q = String((opts.query || {}).q || '').slice(0, 60);
+    const r = q.trim() ? chercher(q) : [];
+    if (r.length === 1) return [303, '', { ...SECURITY, location: r[0].href }];
+    return [200, allerPage({ q, nav })];
   }
   return [404, errorPage('Page introuvable.')];
 }
@@ -409,7 +461,7 @@ export async function viewDoc(id) {
   const doc = /^[a-f0-9]{24}$/.test(String(id)) && list.find((d) => d.id === id);
   if (!doc) return [404, errorPage('Papier introuvable.')];
   const nonce = crypto.randomBytes(16).toString('base64url');
-  return [200, coffreViewPage({ doc, places: rattachements((await readDossier(DATA)).data), nonce, script: CLIENT_JS, token: FORM_TOKEN, vaultInfo: await vaultState(COFFRE_VAULT), verif: (await readVerifier(COFFRE_VERIF)) || '', index: list, indice: await readIndice() }), withScript(nonce)];
+  return [200, coffreViewPage({ nav: await navCounts(), doc, places: rattachements((await readDossier(DATA)).data), nonce, script: CLIENT_JS, token: FORM_TOKEN, vaultInfo: await vaultState(COFFRE_VAULT), verif: (await readVerifier(COFFRE_VERIF)) || '', index: list, indice: await readIndice() }), withScript(nonce)];
 }
 // Opening a paper: decrypted in memory, shown in the browser. Only PDF and photos ever get here (checked at filing).
 export async function serveDoc(id) {

@@ -15,7 +15,7 @@ const fr = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 export function evaluate({ sante, sauvegarde, ficheRappel, todayIso = null, dossier = null, prospects = null, coffre = null, integrite = null, integriteInstalle = false, micro = null, factures = null, apporteurs = null, now = Date.now() }) {
   const out = [];
   const add = (cause, level, text) => out.push({ cause, level, text });
-  if (todayIso) for (const e of remindersFor(todayIso)) add(`echeance:${e.id}:${e.date}:J-${e.jours}`, 'decision', `📅 ${e.jours === 1 ? 'Demain' : `Dans ${e.jours} jours`} (${fr(e.date)}) : ${e.libelle}.${e.statut === 'a_verifier' ? ' Date à revérifier cette année.' : ''} Détail sur l’écran Aujourd’hui du Cockpit.`);
+  if (todayIso) for (const e of remindersFor(todayIso)) add(`echeance:${e.id}:${e.date}:J-${e.jours}`, 'decision', `📅 ${e.jours === 1 ? 'Demain' : `Dans ${e.jours} jours`} (${fr(e.cible || e.date)}) : ${e.libelle}.${e.cible && e.cible !== e.date ? ` À faire avant le ${fr(e.cible)} (date légale : ${fr(e.date)}).` : ''}${e.statut === 'a_verifier' ? ' Date à revérifier cette année.' : ''} Détail sur l’écran Aujourd’hui du Cockpit.`);
   if (todayIso && dossier) for (const r of rappelsDossier(dossier, todayIso)) add(r.cause, 'decision', r.text);
   if (todayIso && Array.isArray(coffre)) for (const r of rappelsCoffre(coffre, todayIso)) add(r.cause, 'decision', r.text);
   if (todayIso && ((micro && typeof micro === 'object') || factures)) for (const r of rappelsMicro(micro && typeof micro === 'object' ? micro : {}, todayIso, factures && Array.isArray(factures.factures) ? encaissements(factures) : null)) add(r.cause, 'decision', r.text);

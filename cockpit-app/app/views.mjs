@@ -20,14 +20,42 @@ const CSS = `
 @media (prefers-color-scheme:dark){:root{--bg:#0e1116;--card:#171b22;--ink:#e9ecf1;--ink2:#a9b2bf;--ink3:#737d8b;--line:#272d37;--accent:#86a4ff;--accent2:#b39cff;--accentbg:#1b2440;--ok:#63d697;--okbg:#14301f;--warn:#f2c466;--warnbg:#33270f;--bad:#ff8a80;--badbg:#3a1714;--info:#86a4ff;--infobg:#1b2440;--shadow:none;--hero1:#2748b8;--hero2:#5a34c4}}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif}
-header{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:12px;align-items:center;z-index:2}
-header .brand{font-weight:800;font-size:17px;letter-spacing:-.2px;margin-right:auto;display:flex;align-items:center;gap:8px}
-header .brand i{width:10px;height:10px;border-radius:50%;background:var(--ok);display:inline-block;box-shadow:0 0 0 3px var(--okbg)}
-nav{display:flex;gap:2px}@media(min-width:900px){header nav{flex:1;min-width:0;flex-wrap:wrap}}nav a{color:var(--ink2);text-decoration:none;font-weight:600;padding:8px 10px;border-radius:12px;min-height:44px;line-height:28px;display:inline-flex;align-items:center;gap:6px}
-nav a[aria-current]{color:var(--accent);background:var(--accentbg)}nav a em{font-style:normal}
-@media(max-width:899px){header nav{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:6px 8px calc(6px + env(safe-area-inset-bottom));justify-content:space-around;z-index:3}
-nav a{flex-direction:column;gap:0;padding:4px 4px;font-size:11px;line-height:1.2;min-width:58px;border-radius:14px}nav a em{font-size:22px;line-height:1.1}main{padding-bottom:96px}}
-main{max-width:1180px;margin:0 auto;padding:18px 16px 32px}
+main{max-width:1180px;margin:0 auto;padding:18px 16px calc(100px + env(safe-area-inset-bottom))}
+.skip{position:absolute;left:-9999px;top:8px;z-index:20;background:var(--card);color:var(--accent);padding:10px 14px;border-radius:12px;font-weight:700}.skip:focus{left:8px}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+a:focus-visible,button:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+header.top{position:sticky;top:0;z-index:4;background:color-mix(in srgb,var(--card) 94%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line);padding:calc(6px + env(safe-area-inset-top)) 10px 6px 12px;display:flex;gap:8px;align-items:center;min-height:58px}
+.brand{font-weight:800;font-size:17px;letter-spacing:-.2px;display:flex;align-items:center;gap:8px;color:var(--ink);text-decoration:none;min-height:44px}
+.brand i{width:10px;height:10px;border-radius:50%;display:inline-block;box-shadow:0 0 0 3px var(--okbg)}
+header.top .back{display:inline-flex;align-items:center;gap:4px;color:var(--accent);font-weight:700;text-decoration:none;min-height:44px;padding:0 10px 0 4px;border-radius:12px;font-size:16px;min-width:0}
+header.top .back b{font-size:26px;line-height:1;font-weight:400;margin-top:-3px}
+header.top .tools{margin-left:auto;display:flex;gap:6px;align-items:center;flex:0 0 auto}header.top form{margin:0}
+.tool,button.tool{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:44px;min-height:44px;padding:0 12px;border-radius:12px;color:var(--ink2);text-decoration:none;font-weight:600;font-size:15px;border:1px solid var(--line);background:transparent;margin:0}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;justify-content:space-around;gap:2px;background:color-mix(in srgb,var(--card) 94%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:5px 6px calc(5px + env(safe-area-inset-bottom))}
+nav.tabs a{flex:1 1 0;min-width:0;max-width:120px;display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 2px 4px;min-height:54px;border-radius:14px;color:var(--ink2);text-decoration:none;font-size:11.5px;font-weight:600;line-height:1.2;position:relative}
+nav.tabs a em{font-style:normal;font-size:22px;line-height:1.15}nav.tabs a.on{color:var(--accent);background:var(--accentbg)}
+.nb{position:absolute;top:1px;left:calc(50% + 7px);min-width:19px;height:19px;padding:0 5px;border-radius:10px;background:var(--bad);color:#fff;font-size:11.5px;font-weight:800;line-height:19px;text-align:center;font-style:normal;box-shadow:0 0 0 2px var(--card)}
+nav.side{display:none}
+@media(min-width:900px){nav.tabs{display:none}
+ nav.side{display:flex;flex-direction:column;gap:2px;position:fixed;top:0;bottom:0;left:0;width:264px;background:var(--card);border-right:1px solid var(--line);padding:16px 12px;overflow-y:auto;z-index:4}
+ header.top,main{margin-left:264px}main{max-width:1180px;padding:22px 32px 40px}
+ header.top .brand,header.top .tools,header.top.racine{display:none}header.top{position:static;background:transparent;border:0;backdrop-filter:none;-webkit-backdrop-filter:none;padding:14px 28px 0;min-height:0}
+ nav.side .brand{padding:2px 10px 10px}
+ nav.side form.go{display:flex;gap:6px;margin:0 0 10px}nav.side form.go input{min-height:40px;padding:8px 10px;font-size:15px}nav.side form.go button{margin:0;min-height:40px;padding:8px 12px}
+ nav.side a{display:flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font-weight:700;padding:8px 10px;border-radius:12px;min-height:42px;font-size:15.5px}
+ nav.side a em{font-style:normal;width:22px;text-align:center}nav.side a.p{font-weight:600;color:var(--ink2);padding-left:20px;min-height:38px;font-size:15px}
+ nav.side a.on{background:var(--accentbg);color:var(--accent)}nav.side a.in{color:var(--accent)}
+ nav.side .nb{position:static;margin-left:auto;box-shadow:none}
+ nav.side .lock{margin-top:auto;padding-top:14px}nav.side .lock button{width:100%;min-height:44px}}
+.qa{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:0 0 14px}@media(min-width:700px){.qa{grid-template-columns:repeat(4,1fr)}}
+.qa a{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;min-height:56px;color:var(--ink);text-decoration:none;font-weight:700;font-size:15px;box-shadow:var(--shadow)}.qa a em{font-style:normal;font-size:22px}
+@media (prefers-color-scheme:light){.qa a{border-color:transparent}}
+.tiles{display:grid;gap:12px}@media(min-width:700px){.tiles{grid-template-columns:repeat(2,1fr)}}
+a.tile{display:flex;gap:14px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;color:var(--ink);text-decoration:none;box-shadow:var(--shadow);min-height:88px;position:relative}
+@media (prefers-color-scheme:light){a.tile{border-color:transparent}}
+a.tile>em{font-style:normal;font-size:30px;line-height:1.1}a.tile b{font-size:17px;display:block}a.tile span.d{display:block;color:var(--ink2);font-size:14.5px;margin-top:2px}a.tile span.s{display:inline-block;margin-top:8px;font-size:13.5px;font-weight:700;color:var(--accent);background:var(--accentbg);border-radius:999px;padding:3px 10px}a.tile span.s.warn{color:var(--warn);background:var(--warnbg)}
+a.tile::after{content:'›';margin-left:auto;align-self:center;color:var(--ink3);font-size:26px}
+ul.todo li a{color:var(--ink);text-decoration:none;font-weight:700;display:flex;gap:10px;align-items:center;min-height:44px}ul.todo li a::after{content:'›';margin-left:auto;color:var(--ink3);font-size:22px}
 h1{font-size:30px;line-height:1.15;letter-spacing:-.4px;margin:6px 0 2px;font-weight:800}h2{font-size:17px;margin:0 0 12px;display:flex;align-items:center;gap:8px;letter-spacing:-.1px}
 .sub{color:var(--ink2);margin:0 0 14px;font-size:15px}
 .hero{background:linear-gradient(135deg,var(--hero1),var(--hero2));color:#fff;border-radius:22px;padding:20px 20px 18px;box-shadow:var(--shadow);margin:4px 0 16px}
@@ -63,20 +91,99 @@ select,textarea{font:inherit;font-size:16px;padding:10px 12px;border:1px solid v
 a.btn{display:inline-block;font-weight:700;background:var(--accentbg);color:var(--accent);border-radius:14px;padding:10px 16px;min-height:44px;line-height:24px;text-decoration:none;margin-top:8px}
 button.danger{background:var(--badbg);color:var(--bad)}
 #papier.plein{position:fixed;inset:0;z-index:60;background:#1c1c1e;overflow:auto;-webkit-overflow-scrolling:touch;padding:calc(60px + env(safe-area-inset-top)) 8px calc(20px + env(safe-area-inset-bottom));margin:0}
-footer.foot{display:none}@media(max-width:899px){nav a.more{display:none}footer.foot{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:22px}footer.foot a{color:var(--ink2);font-weight:600;text-decoration:none;padding:10px 14px;border-radius:12px;background:var(--card);min-height:44px}}
 .chips.f a{background:var(--card);color:var(--ink2);border:1px solid var(--line);text-decoration:none;border-radius:999px;padding:8px 12px;font-size:14px;font-weight:600;white-space:nowrap;min-height:40px;display:inline-flex;align-items:center}.chips.f a[aria-current]{background:var(--accent);color:#fff;border-color:var(--accent)}
+[id]{scroll-margin-top:76px}.dl>div,a.tile>span{min-width:0;overflow-wrap:anywhere}
+@media(max-width:359px){.tool .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.chip{white-space:normal}.row{flex-wrap:wrap}.qa{grid-template-columns:1fr}nav.tabs a{font-size:10px}.brand{font-size:15px}}
 li.doc{display:flex;gap:12px;align-items:flex-start}li.doc .ic{font-size:24px;line-height:1.2}li.doc a.t{font-weight:700;color:var(--ink);text-decoration:none;font-size:16px}li.doc .m{color:var(--ink2);font-size:13.5px;margin-top:2px}li.doc details{margin-top:6px}li.doc summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600}
 `;
 
-// Five tabs on the phone (bottom bar); « more » ones are in the header on a computer and in the footer on a phone.
-const NAV = [['/', '🏠', "Aujourd'hui"], ['/patrimoine', '🏡', 'Patrimoine'], ['/coffre', '🗄', 'Coffre'], ['/dossier', '🗂', 'Dossier'], ['/prospects', '🎯', 'Prospects'], ['/factures', '🧾', 'Factures', 'more'], ['/apporteurs', '🤝', 'Apporteurs', 'more'], ['/micro', '💼', 'Micro-entreprise', 'more'], ['/mes-chiffres', '💶', 'Mes chiffres', 'more'], ['/sauvegardes', '🔐', 'Sauvegardes', 'more']];
-function layout(title, current, body, { nonce, script, noNav, ok = true } = {}) {
-  const link = ([href, icon, label, more]) => `<a href="${href}"${more ? ' class="more"' : ''}${current === href ? ' aria-current="page"' : ''}><em aria-hidden="true">${icon}</em>${label}</a>`;
-  const foot = noNav ? '' : `<footer class="foot">${NAV.filter((n) => n[3]).map(([h, i, l]) => `<a href="${h}">${i} ${l}</a>`).join('')}</footer>`;
+// Navigation (C-121): five places, grouped by what Sam wants to do; every page in two taps at most.
+// Phone: a bottom tab bar (Apple HIG: 3 to 5 tabs, never a hidden « More »). Computer: a sidebar with every page
+// visible (NN/g: hidden navigation is found less and later). Badges are counts only, never an amount.
+export const GROUPS = [
+  { key: 'accueil', href: '/', icon: '🏠', label: 'Aujourd’hui', tab: 'Aujourd’hui', desc: 'Ce qui t’attend, les échéances', pages: [] },
+  { key: 'argent', href: '/argent', icon: '💶', label: 'Mon argent', tab: 'Argent', desc: 'Factures, URSSAF, apporteurs, budget', pages: [
+    { href: '/factures', icon: '🧾', label: 'Factures', desc: 'Créer, envoyer en PDF, marquer payée', mots: 'facture avoir client pdf encaisser paye impaye retard devis' },
+    { href: '/micro', icon: '💼', label: 'Micro-entreprise', desc: 'Déclarer à l’URSSAF, seuil de TVA, mettre de côté', mots: 'urssaf declaration declarer cotisations tva seuil chiffre affaires impot recu encaissement sm' },
+    { href: '/apporteurs', icon: '🤝', label: 'Apporteurs', desc: 'Leurs boutiques, commissions et versements', mots: 'commission parrain contrat versement zaff boutique classement bonus lien' },
+    { href: '/mes-chiffres', icon: '📊', label: 'Mes chiffres', desc: 'Salaire et abonnements réels', mots: 'salaire abonnement budget revenu' }] },
+  { key: 'patrimoine', href: '/patrimoine', icon: '🏡', label: 'Patrimoine', tab: 'Patrimoine', desc: 'Tes biens, crédits et loyers', pages: [], mots: 'maison appartement studio bien credit pret mensualite loyer immobilier' },
+  { key: 'papiers', href: '/papiers', icon: '🗄', label: 'Mes papiers', tab: 'Papiers', desc: 'Coffre, dossier, sauvegardes', pages: [
+    { href: '/coffre', icon: '🗄', label: 'Coffre', desc: 'Ranger, retrouver et lire tes papiers', mots: 'papier document scanner photo bail acte contrat mot de passe indice chiffre ranger' },
+    { href: '/dossier', icon: '🗂', label: 'Dossier', desc: 'Biens, crédits, loyers, abonnements à saisir', mots: 'bien credit loyer abonnement charges modifier saisir maison' },
+    { href: '/sauvegardes', icon: '🔐', label: 'Sauvegardes', desc: 'Clé de sauvegarde, test, jeton GitHub', mots: 'sauvegarde cle secours restaurer jeton github' }] },
+  { key: 'vendre', href: '/prospects', icon: '🎯', label: 'Vendre', tab: 'Vendre', desc: 'Prospects à relancer', pages: [], mots: 'prospect relance client vente demo instagram' },
+];
+// Every screen once, with where it lives: the menu, « Aller à… » and the back button all read this list.
+export const PAGES = GROUPS.flatMap((g) => [{ href: g.href, icon: g.icon, label: g.key === 'vendre' ? 'Prospects' : g.label, desc: g.desc, mots: g.mots || '', group: null },
+  ...g.pages.map((p) => ({ ...p, group: g }))]);
+const groupOf = (href) => GROUPS.find((g) => g.href === href || g.pages.some((p) => p.href === href)) || null;
+const nb = (n, what = 'à traiter') => (n > 0 ? `<span class="vh">, </span><em class="nb">${n > 99 ? '99+' : n}<span class="vh"> ${what}</span></em>` : '');
+const NAV_KEYS = { accueil: 'à faire', argent: 'en retard', papiers: 'à faire', vendre: 'à relancer' };
+
+// back: [href, label] for a page below a page (one paper → the Coffre); otherwise the page's group.
+function layout(title, current, body, { nonce, script, noNav, ok = true, nav = {}, back = null } = {}) {
+  const g = groupOf(current);
+  const sub = g && g.href !== current;
+  const retour = back || (sub ? [g.href, g.label] : null);
+  const dot = `<i style="background:var(--${ok ? 'ok' : 'warn'})"></i>`;
+  const lock = '<form method="post" action="/deconnexion" class="lock"><button type="submit" class="tool"><span aria-hidden="true">🔒</span><span class="lbl"> Verrouiller</span></button></form>';
+  if (noNav) {
+    return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2457e6"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Cockpit">
+<title>${esc(title)} · Cockpit</title><style>${CSS}</style></head><body>
+<header class="top"><span class="brand">${dot}Mon Cockpit</span></header><main id="contenu" style="margin:0 auto">${body}</main>${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`;
+  }
+  const count = (k) => nb(nav[k] || 0, NAV_KEYS[k]);
+  const on = (gr) => g && g.key === gr.key;
+  const tabs = GROUPS.map((gr) => `<a href="${gr.href}"${on(gr) ? ` class="on"${current === gr.href ? ' aria-current="page"' : ''}` : ''}><em aria-hidden="true">${gr.icon}</em>${esc(gr.tab)}${count(gr.key)}</a>`).join('');
+  const side = GROUPS.map((gr) => `<a href="${gr.href}" class="g${current === gr.href ? ' on' : on(gr) ? ' in' : ''}"${current === gr.href ? ' aria-current="page"' : ''}><em aria-hidden="true">${gr.icon}</em>${esc(gr.label)}${count(gr.key)}</a>`
+    + gr.pages.map((p) => `<a href="${p.href}" class="p${current === p.href ? ' on' : ''}"${current === p.href ? ' aria-current="page"' : ''}><em aria-hidden="true">${p.icon}</em>${esc(p.label)}</a>`).join('')).join('');
+  const list = `<datalist id="pages">${PAGES.map((p) => `<option value="${esc(p.label)}">`).join('')}</datalist>`;
+  const top = retour
+    ? `<header class="top"><a class="back" href="${esc(retour[0])}"><b aria-hidden="true">‹</b> ${esc(retour[1])}</a>`
+    : `<header class="top racine"><a class="brand" href="/">${dot}Mon Cockpit</a>`;
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#2457e6"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Cockpit">
 <title>${esc(title)} · Cockpit</title><style>${CSS}</style></head><body>
-<header><span class="brand"><i style="background:var(--${ok ? 'ok' : 'warn'})"></i>Mon Cockpit</span>${noNav ? '' : `<nav>${NAV.map(link).join('')}</nav><form method="post" action="/deconnexion" style="margin:0"><button type="submit" class="ghost">Verrouiller</button></form>`}</header><main>${body}${foot}</main>${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`;
+<a class="skip" href="#contenu">Aller au contenu</a>
+${top}<div class="tools"><a class="tool" href="/aller" aria-label="Aller à une page"${current === '/aller' ? ' aria-current="page"' : ''}><span aria-hidden="true">🔎</span></a>${lock}</div></header>
+<nav class="side" aria-label="Menu"><a class="brand" href="/">${dot}Mon Cockpit</a>
+<form method="get" action="/aller" class="go" role="search"><label for="q-side" class="vh">Aller à…</label><input id="q-side" name="q" list="pages" placeholder="Aller à…" autocomplete="off"><button type="submit">Aller</button></form>
+${side}${lock}</nav>
+<main id="contenu" tabindex="-1">${body}</main>
+<nav class="tabs" aria-label="Onglets">${tabs}</nav>${list}${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`;
+}
+
+// Hub of a group (Mon argent, Mes papiers): one tile per page with its live state (counts and dates, short).
+export function hubPage(key, { nav = {}, etats = {} } = {}) {
+  const g = GROUPS.find((x) => x.key === key);
+  const tile = (p) => { const e = etats[p.href] || {}; return `<a class="tile" href="${p.href}"><em aria-hidden="true">${p.icon}</em><span><b>${esc(p.label)}</b><span class="d">${esc(p.desc)}</span>${e.texte ? `<span class="s${e.warn ? ' warn' : ''}">${esc(e.texte)}</span>` : ''}</span></a>`; };
+  return layout(g.label, g.href, `<h1>${g.icon} ${esc(g.label)}</h1><p class="sub">${esc(g.desc)}. Touche une carte pour l’ouvrir.</p><div class="tiles">${g.pages.map(tile).join('')}</div>`, { nav });
+}
+
+// « Aller à… »: a plain form (no script). One clear match → the server opens the page; otherwise the list.
+const plat = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[’']/g, ' ').trim();
+export function chercher(q) {
+  const t = plat(q);
+  if (!t) return PAGES;
+  const exact = PAGES.filter((p) => plat(p.label) === t);
+  if (exact.length) return exact;
+  const mots = t.split(/\s+/).filter(Boolean);
+  return PAGES.filter((p) => { const hub = GROUPS.some((g) => g.href === p.href && g.pages.length); const h = plat(hub ? p.label : `${p.label} ${p.desc} ${p.mots} ${p.group ? p.group.label : ''}`); return mots.every((m) => h.includes(m)); });
+}
+export function allerPage({ q = '', nav = {} } = {}) {
+  const r = chercher(q);
+  const item = (p) => `<li><a href="${p.href}"><em aria-hidden="true" style="font-style:normal;font-size:22px">${p.icon}</em><span>${esc(p.label)}<span class="d" style="display:block;color:var(--ink2);font-weight:500;font-size:14px">${p.group ? `${esc(p.group.label)} · ` : ''}${esc(p.desc)}</span></span></a></li>`;
+  const res = String(q).trim()
+    ? (r.length ? `<section class="card"><h2>${r.length} page${r.length > 1 ? 's' : ''} pour « ${esc(q)} »</h2><ul class="plain todo">${r.map(item).join('')}</ul></section>` : `<section class="card">${empty('🤷', `Rien pour « ${esc(q)} ». Essaie un autre mot (facture, URSSAF, loyer, papier…) ou choisis dans la liste ci-dessous.`)}</section>`)
+    : '';
+  const seules = PAGES.filter((p) => !p.group && !GROUPS.some((g) => g.href === p.href && g.pages.length));
+  const plan = `<section class="card"><h2>⭐ Les onglets</h2><ul class="plain todo">${seules.map(item).join('')}</ul></section>`
+    + GROUPS.filter((g) => g.pages.length).map((g) => `<section class="card"><h2><a href="${g.href}" style="color:inherit;text-decoration:none">${g.icon} ${esc(g.label)} ›</a></h2><ul class="plain todo">${g.pages.map((p) => item({ ...p, group: null })).join('')}</ul></section>`).join('');
+  return layout('Aller à…', '/aller', `<h1>🔎 Aller à…</h1><p class="sub">Tape un mot (« facture », « URSSAF », « loyer », « papier »…) : la page s’ouvre directement.</p>
+  <form method="get" action="/aller" role="search" class="card" style="margin-bottom:14px"><div class="f" style="margin:0"><label for="q">Je cherche</label><input id="q" name="q" list="pages" value="${esc(q)}" autocomplete="off" enterkeyhint="go"${String(q).trim() ? '' : ' autofocus'}></div><button type="submit">Aller</button></form>
+  ${res}<h2 style="margin-top:18px">Toutes les pages</h2><div class="cards">${plan}</div>`, { nav });
 }
 
 const empty = (icon, text) => `<div class="empty"><b>${icon}</b><span>${text}</span></div>`;
@@ -107,7 +214,7 @@ const faitesHtml = (faites, token, auto = []) => {
   return `<details class="faites"><summary>Déjà faits (${n})</summary><ul class="plain">${vus}${coches}</ul></details>`;
 };
 
-export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [], alertes, attentes = null, budget = null, token = '', micro = null, factures = null }) {
+export function todayPage({ nav = {}, now, sante, sauvegarde, notes, echeances, fiscal = [], alertes, attentes = null, budget = null, token = '', micro = null, factures = null }) {
   const d = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
   const h = Number(now.toLocaleString('fr-FR', { hour: 'numeric', hour12: false, timeZone: 'Europe/Paris' }).replace(/\D/g, ''));
   const hello = h < 5 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
@@ -140,21 +247,37 @@ export function todayPage({ now, sante, sauvegarde, notes, echeances, fiscal = [
     <div class="row"><span>Dépenses fixes</span><span>− ${eur(budget.charges)}</span></div>
     <div class="row"><span><b>Il reste (estimé)</b></span><span><b>${budget.complet ? eur(budget.solde) : '—'}</b></span></div>
     <p class="note">${budget.complet ? 'Estimation à partir de ton dossier, pas ton compte en banque : sans impôts, cotisations ni dépenses imprévues.' : 'Saisis ton salaire dans « Mes chiffres » pour voir ce qu’il reste.'} Liste à compléter dans « Dossier ».</p>` : '';
+  // What the Cockpit sees by itself (counts and dates only), each line opens the page where it is done.
+  const iso = now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
+  const dans = (x) => Math.round((Date.parse(x + 'T12:00:00Z') - Date.parse(iso + 'T12:00:00Z')) / 864e5);
+  const decl = micro && Array.isArray(micro.mois) ? micro.mois.filter((x) => x.aDeclarer && x.echeance).map((x) => x.echeance).sort()[0] : null;
+  const s = (n) => (n > 1 ? 's' : '');
+  const vus = [
+    factures && factures.enRetard && factures.enRetard.length ? ['now', 'En retard', `⏰ ${factures.enRetard.length} facture${s(factures.enRetard.length)} pas payée${s(factures.enRetard.length)} à temps : relance`, '/factures'] : null,
+    nav.vendre ? ['now', 'Aujourd’hui', `🎯 ${nav.vendre} prospect${s(nav.vendre)} à relancer`, '/prospects'] : null,
+    decl && dans(decl) <= 15 ? [dans(decl) <= 3 ? 'now' : 'soon', `Avant le ${dateCourte(decl)}`, '📮 Déclarer tes encaissements à l’URSSAF (si ce n’est pas déjà fait)', '/micro'] : null,
+    nav.papiers ? ['later', 'Quand tu peux', `🗄 ${nav.papiers} papier${s(nav.papiers)} marqué${s(nav.papiers)} « à faire »`, '/coffre?afaire=1'] : null,
+  ].filter(Boolean);
+  const vusHtml = vus.length ? `<p class="proj">Vu par le Cockpit</p><ul class="plain todo">${vus.map(([u, q, t, h]) => `<li class="task"><span class="when ${u}">${esc(q)}</span><a href="${h}">${esc(t)}</a></li>`).join('')}</ul>` : '';
+  const qa = `<nav class="qa" aria-label="Actions rapides"><a href="/factures#nouvelle"><em aria-hidden="true">🧾</em>Nouvelle facture</a><a href="/coffre#form-ranger"><em aria-hidden="true">📷</em>Ranger un papier</a><a href="/micro#recu"><em aria-hidden="true">💶</em>Argent reçu</a><a href="/prospects#nouveau"><em aria-hidden="true">🎯</em>Nouveau prospect</a></nav>`;
   return layout("Aujourd'hui", '/', `<section class="hero"><h1>${hello} Sam 👋</h1><p class="sub">${esc(d)}</p><div class="chips">${chips}</div></section>${al}
   <div class="cards">
-   <section class="card wide"><h2>🧑 À faire par toi${pill(total)}</h2>${att}</section>
+   <section class="card wide"><h2>🧑 À faire par toi${pill(total)}</h2>${vusHtml}${vus.length ? att.replace('Rien n’attend ta décision. Profite.', 'Rien d’autre n’attend ta décision.') : att}</section>
+  </div>
+  <h2 style="margin:18px 0 10px">⚡ Actions rapides</h2>${qa}
+  <div class="cards">
+   <section class="card"><h2>🗓 Échéances à venir <span class="note" style="margin:0;font-weight:500">30 jours</span></h2>${ech}</section>
+   <section class="card"><h2>🧾 Impôts et URSSAF (45 jours)</h2>${fis}<p class="note">Le bot te prévient 30 jours, 7 jours et la veille. Une échéance n’est jamais comptée comme payée sans ta confirmation.</p></section>
    ${bud ? `<section class="card"><h2>💶 Budget du mois</h2>${bud}</section>` : ''}
    ${factures && factures.nbOuvertes ? `<section class="card"><h2>🧾 À encaisser</h2><div class="row"><span>${factures.nbOuvertes} facture${factures.nbOuvertes > 1 ? 's' : ''} pas encore payée${factures.nbOuvertes > 1 ? 's' : ''}</span><span>${eur(factures.aEncaisser)}</span></div>${factures.enRetard.length ? `<p class="alert warn">${factures.enRetard.length} en retard : relance ton client.</p>` : ''}<p class="note"><a href="/factures">Voir mes factures →</a></p></section>` : ''}
    ${micro && (micro.caAnnee || micro.aGarder) ? `<section class="card"><h2>💼 Micro-entreprise</h2><div class="row"><span>Reçu en ${esc(micro.annee)}</span><span>${eur(micro.caAnnee)}</span></div><div class="row"><span>Seuil de TVA</span><span>${micro.tva.niveau === 'due' ? 'TVA due' : `${micro.tva.pctBase} %`}</span></div><div class="row"><span>À garder de côté</span><span>${eur(micro.aGarder)}</span></div><p class="note"><a href="/micro">Ce qu’il faut déclarer →</a></p></section>` : ''}
-   <section class="card"><h2>🗓 Échéances à venir <span class="note" style="margin:0;font-weight:500">30 jours</span></h2>${ech}</section>
-   <section class="card"><h2>🧾 Impôts et URSSAF (45 jours)</h2>${fis}<p class="note">Le bot te prévient 30 jours, 7 jours et la veille. Une échéance n’est jamais comptée comme payée sans ta confirmation.</p></section>
    <section class="card"><h2>💬 Dernières notes</h2>${nts}</section>
    <section class="card"><h2>🖥 Serveur</h2>${srv}</section>
-   <section class="card"><h2>💾 Sauvegarde</h2>${sv}</section>
-  </div>`, { ok: !sante || sante.ok });
+   <section class="card"><h2>💾 Sauvegarde</h2>${sv}<p class="note"><a href="/sauvegardes">Ma clé et mes sauvegardes →</a></p></section>
+  </div>`, { ok: !sante || sante.ok, nav });
 }
 
-export function patrimoinePage({ summary, asOf, vide = false, papiers = {} }) {
+export function patrimoinePage({ nav = {}, summary, asOf, vide = false, papiers = {} }) {
   const t = summary.totals;
   const kpis = `<div class="kpis">
    <div class="kpi"><span>Reste à payer (théorique)</span><b>${eur(t.restantCents)}</b></div>
@@ -178,10 +301,10 @@ export function patrimoinePage({ summary, asOf, vide = false, papiers = {} }) {
      ${loyers}${hyp}${al}${f ? `<p class="note">Paiement : ${esc(f.paiement || '—')}.</p>` : ''}<a class="btn" href="/coffre?r=${encodeURIComponent('bien:' + b.id)}">📎 Ses papiers (${papiers['bien:' + b.id] || 0})</a></section>`;
   }).join('');
   const body = vide ? `<section class="card">${empty('🗂', 'Aucun bien pour l’instant.')}<a class="btn" href="/dossier">Remplir mon dossier</a></section>` : `${kpis}<div class="cards">${cards}</div><p style="margin-top:14px"><a class="btn" href="/dossier">✏️ Modifier mon dossier</a></p>`;
-  return layout('Patrimoine', '/patrimoine', `<h1>Patrimoine</h1><p class="sub">Calculé au ${esc(date(asOf))}, en supposant toutes les échéances payées jusqu'ici. La valeur actuelle des biens n'est pas encore estimée.</p>${body}`);
+  return layout('Patrimoine', '/patrimoine', `<h1>Patrimoine</h1><p class="sub">Calculé au ${esc(date(asOf))}, en supposant toutes les échéances payées jusqu'ici. La valeur actuelle des biens n'est pas encore estimée.</p>${body}`, { nav });
 }
 
-export function chiffresPage({ data, prive, token, message }) {
+export function chiffresPage({ nav = {}, data, prive, token, message }) {
   const v = (k) => (prive && prive[k] != null ? (prive[k].montantCents / 100).toFixed(2).replace('.', ',') : '');
   const when = (k) => (prive && prive[k] ? ` <span class="badge info">Saisi le ${esc(new Date(prive[k].le).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }))}</span>` : '');
   const abos = data.abonnements.map((a, i) => `<div class="f"><label for="abo${i}">${esc(a.nom)} ${badge(a.statut)}${when('abo:' + a.nom)}</label>
@@ -196,7 +319,7 @@ export function chiffresPage({ data, prive, token, message }) {
     <p class="note">Laisse vide ce que tu ne sais pas encore.</p></section>
    <section class="card"><h2>🔁 Abonnements réels (€ / mois)</h2>${abos}
     <button type="submit">Enregistrer</button></section>
-  </form>`);
+  </form>`, { nav });
 }
 
 // « Ma micro-entreprise » (src/micro.mjs): received per month and activity → URSSAF lines, money to set aside, gauges.
@@ -208,7 +331,7 @@ const TVA_TEXTE = (t) => ({
   due: 'L’an dernier, tu as passé le seuil de TVA : tu dois facturer la TVA depuis le 1er janvier. Préviens Claude aujourd’hui.',
   depasse: '2e seuil passé : tu dois facturer la TVA dès maintenant. Préviens Claude aujourd’hui.',
 })[t.niveau];
-export function microPage({ data, enc = null, todayIso, token, message, sent = null }) {
+export function microPage({ nav = {}, data, enc = null, todayIso, token, message, sent = null }) {
   const r = microResume(data, todayIso, enc);
   const warn = '<span class="badge warn">taux à vérifier</span>';
   const gauge = (p, label) => `<div class="bar" role="img" aria-label="${p} % ${esc(label)}"><i style="width:${Math.min(100, p)}%"></i></div>`;
@@ -240,15 +363,15 @@ export function microPage({ data, enc = null, todayIso, token, message, sent = n
     <div class="row"><span>Reste avant ${eur(r.plafond.cents)}</span><span>${eur(r.plafond.reste)}</span></div></section>
    <section class="card"><h2>💰 À garder de côté : ${eur(r.aGarder)}</h2>
     <p class="note">Les cotisations pas encore payées (jusqu’à la date de chaque déclaration) et la réserve pour l’impôt de chaque année (gardée jusqu’au 30 septembre de l’année suivante, quand l’impôt est réglé).</p></section>
-   <section class="card wide"><h2>✏️ Ce que tu as reçu</h2>
+   <section class="card wide" id="recu"><h2>✏️ Ce que tu as reçu</h2>
     <p class="note">Écris l’argent <b>réellement arrivé sur ton compte</b> dans le mois (pas ce que tu as facturé) : tout ce que tes clients t’ont payé, frais que tu leur refactures compris. Vide = rien reçu. Vendix commence en novembre 2026. <b>Tes factures marquées payées comptent déjà toutes seules</b> : n’écris ici que l’argent reçu sans facture du Cockpit.</p>
     <form method="post" action="/micro"><input type="hidden" name="jeton" value="${esc(token)}">${lignes}<button type="submit">Enregistrer</button></form>
     <p class="note">Taux utilisés : ${pc(MICRO.taux.bnc.pct)} % (libéral) et ${pc(MICRO.taux.bic.pct)} % (Vendix), plus la formation professionnelle (${pc(MICRO.formation.bnc)} % et ${pc(MICRO.formation.bic)} %), d’après plusieurs sources concordantes : à confirmer sur ton espace URSSAF à ta 1re déclaration. Les ${MICRO.provisionImpotPct} % pour l’impôt sont une réserve de prudence, pas un calcul d’impôt.</p></section>
-  </div>`);
+  </div>`, { nav });
 }
 
 // « 🧾 Factures » (src/factures.mjs): create, PDF, paid in one tap (→ « Ma micro-entreprise »), cancel by a credit note.
-export function facturesPage({ data, todayIso, token, message, sent = null }) {
+export function facturesPage({ nav = {}, data, todayIso, token, message, sent = null }) {
   const k = dossierKit(sent);
   const e = data.emetteur;
   const r = resumeFactures(data, todayIso);
@@ -273,7 +396,7 @@ export function facturesPage({ data, todayIso, token, message, sent = null }) {
      ${k.area('paiement', 'Comment te payer (écrit sur chaque facture)', e ? e.paiement : 'Par virement bancaire (coordonnées jointes à la facture).', '')}
      <p class="note">N’écris pas ton IBAN ici : envoie ton RIB à part (PDF de ta banque), une seule fois à chaque client.</p>
      <button type="submit">💾 Enregistrer mes coordonnées</button></form>`;
-  const lignesForm = Array.from({ length: LIGNES }, (_, j) => j + 1).map((i) => `<div>${k.inp(`l${i}_designation`, `Ligne ${i} : ce que tu factures`, '', { max: 120, ph: i === 1 ? 'ex. Abonnement Vendix, formule Boutique, novembre 2026' : 'facultatif' }).replace('<input ', '<input list="suggestions" ')}<div class="grid2">${k.inp(`l${i}_qte`, 'Quantité', '', { mode: 'numeric', ph: '1', max: 3 })}${k.inp(`l${i}_pu`, 'Prix (€)', '', { mode: 'decimal', ph: i === 1 ? 'ex. 249' : '0 = offert', max: 12 })}</div></div>`);
+  const lignesForm = Array.from({ length: LIGNES }, (_, j) => j + 1).map((i) => `<div>${k.inp(`l${i}_designation`, `Ligne ${i} : ce que tu factures`, '', { max: 120, ph: i === 1 ? 'ex. Abonnement Vendix, formule Boutique, novembre 2026' : 'facultatif' }).replace('<input ', '<input list="suggestions" ')}<div class="grid2">${k.inp(`l${i}_qte`, 'Quantité', '', { mode: 'numeric', ph: '1', max: 3 })}${k.inp(`l${i}_pu`, 'Prix (€)', '', { mode: 'decimal', ph: i === 1 ? 'ex. 99' : '0 = offert', max: 12 })}</div></div>`);
   const nouvelle = `<form method="post" action="/factures">${hid}<input type="hidden" name="envoi" value="${esc(globalThis.crypto.randomUUID())}">
      <div class="grid2">${k.inp('client_nom', 'Client (nom ou raison sociale)', '', { max: 80, ph: 'ex. Les Zaff' })}${k.inp('client_siren', 'SIREN du client (s’il en a un)', '', { mode: 'numeric', max: 11, ph: '9 chiffres, facultatif' })}</div>
      ${k.area('client_adresse', 'Adresse du client (3 lignes au plus)', '', 'n° et rue\ncode postal et ville')}
@@ -282,14 +405,14 @@ export function facturesPage({ data, todayIso, token, message, sent = null }) {
      <div class="grid2">${k.inp('periode', 'Période ou date de la prestation', '', { max: 60, ph: 'ex. novembre 2026' })}<div class="f"><label for="echeance">À payer</label><select id="echeance" name="echeance">${ECHEANCES.map(([kk, l]) => `<option value="${kk}"${val('echeance', '0') === kk ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div></div>
      ${lignesForm.slice(0, 2).join('')}<details><summary>Plus de lignes</summary>${lignesForm.slice(2).join('')}</details>
      <datalist id="suggestions">${SUGGESTIONS.map((t) => `<option value="${esc(t)}">`).join('')}</datalist>
-     <p class="note">En touchant une ligne, des débuts de phrase te sont proposés : choisis-en un et complète. Vérifie bien : une fois créée, une facture ne se modifie plus (tu pourras seulement l’annuler par un avoir). Numéro et date sont mis tout seuls. Client à l’étranger : demande-moi avant (autres mentions).</p>
+     <p class="note">En touchant une ligne, des débuts de phrase te sont proposés : choisis-en un et complète. Vérifie bien : une fois créée, une facture ne se modifie plus (tu pourras seulement l’annuler par un avoir). Numéro et date sont mis tout seuls. Client à l’étranger : demande-moi avant (autres mentions). Site, réservation ou automatisation : l’activité à choisir (Vendix ou conseil) reste à vérifier, demande-moi avant la 1re facture.</p>
      <button type="submit">🧾 Créer la facture</button></form>`;
   return layout('Factures', '/factures', `<section class="hero"><h1>🧾 Mes factures</h1>
    <p class="sub">Tu crées la facture, tu l’envoies en PDF, tu la marques payée : le montant va tout seul dans ta page Micro-entreprise. Tout reste sur ton serveur.</p>
    <div class="chips"><span class="chip">💶 À encaisser : ${eur(r.aEncaisser)} (${r.nbOuvertes})</span><span class="chip">${r.enRetard.length ? `⏰ ${r.enRetard.length} en retard` : '✅ Aucun retard'}</span></div></section>
   ${message ? `<div class="alert ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}${message.ok ? '' : ' Ce que tu as tapé est encore là : corrige la case et recommence.'}</div>` : ''}
   <div class="cards">
-   ${e ? `<section class="card wide"><h2>➕ Nouvelle facture</h2>${nouvelle}</section>` : `<section class="card wide"><h2>👤 D’abord, tes coordonnées (une seule fois)</h2><p class="note">Elles sont écrites en haut de chaque facture. Ton SIRET est sur ton avis de situation (INSEE) ou sur annuaire-entreprises.data.gouv.fr.</p>${coord}</section>`}
+   ${e ? `<section class="card wide" id="nouvelle"><h2>➕ Nouvelle facture</h2>${nouvelle}</section>` : `<section class="card wide" id="nouvelle"><h2>👤 D’abord, tes coordonnées (une seule fois)</h2><p class="note">Elles sont écrites en haut de chaque facture. Ton SIRET est sur ton avis de situation (INSEE) ou sur annuaire-entreprises.data.gouv.fr.</p>${coord}</section>`}
    <section class="card wide"><h2>📋 Mes factures</h2>${list.length ? `<ul class="plain">${list.map(ligne).join('')}</ul>` : '<div class="empty"><b>🧾</b><span>Aucune facture pour l’instant.</span></div>'}
     <p class="note">Pour l’envoyer : ouvre le PDF, touche le bouton Partager (carré avec une flèche), puis WhatsApp, Mail ou Messages.</p></section>
    ${e ? `<section class="card wide"><details><summary>👤 Mes coordonnées sur les factures</summary>${coord}</details></section>` : ''}
@@ -301,11 +424,11 @@ export function facturesPage({ data, todayIso, token, message, sent = null }) {
     <li>Chaque facture garde pour toujours tes coordonnées et ces mentions telles qu’au jour où tu l’as faite.</li>
     <li>Garde tes factures 10 ans : elles restent ici et dans tes sauvegardes.</li></ul>
     <p class="note">Liste vérifiée sur plusieurs guides concordants ; les sites officiels n’étaient pas joignables depuis ma session le 27/10 : à confirmer (service-public.fr, fiche « Factures : mentions obligatoires »).</p></section>
-  </div>`);
+  </div>`, { nav });
 }
 
 // « 🤝 Apporteurs » (src/apporteurs.mjs): who brings clients, what they earn (from the paid invoices), what Sam paid.
-export function apporteursPage({ data, factures, todayIso, token, message, sent = null, facturesIllisibles = false, enLigne = null }) {
+export function apporteursPage({ nav = {}, data, factures, todayIso, token, message, sent = null, facturesIllisibles = false, enLigne = null }) {
   const k = dossierKit(sent);
   const r = apporteursResume(data, factures, todayIso);
   const hid = `<input type="hidden" name="jeton" value="${esc(token)}">`;
@@ -329,7 +452,7 @@ export function apporteursPage({ data, factures, todayIso, token, message, sent 
     <details><summary>⚙️ Contrat, pause</summary><form method="post" action="/apporteurs/modifier">${hid}<input type="hidden" name="id" value="${esc(a.id)}"><div class="grid2"><div class="f"><label for="ct-${esc(a.id)}">Contrat d’apporteur</label><select id="ct-${esc(a.id)}" name="contrat"><option value="1"${a.contrat ? ' selected' : ''}>signé</option><option value="0"${a.contrat ? '' : ' selected'}>pas encore signé</option></select></div><div class="f"><label for="ac-${esc(a.id)}">État</label><select id="ac-${esc(a.id)}" name="actif"><option value="1"${a.actif ? ' selected' : ''}>actif</option><option value="0"${a.actif ? '' : ' selected'}>en pause</option></select></div></div>${k.inp('contact', 'Contact', a.contact, { max: 80 }).replace('id="contact"', `id="contact-${esc(a.id)}"`).replace('for="contact"', `for="contact-${esc(a.id)}"`)}<button type="submit">Enregistrer</button></form></details></section>`;
   const ajout = `<form method="post" action="/apporteurs/ajouter">${hid}
     <div class="grid2 stack">${k.inp('nom', 'Nom (ou nom de sa boutique)', '', { max: 60, ph: 'ex. Les Zaff' })}${k.inp('contact', 'Contact (Telegram, WhatsApp…)', '', { max: 80 })}</div>
-    <div class="grid2 stack"><div class="f"><label for="parrain">Présenté par (facultatif)</label><select id="parrain" name="parrain"><option value="">personne : apporteur direct (${TAUX.direct.join(' / ')} %)</option>${r.apporteurs.filter((a) => !a.parrain).map((a) => `<option value="${esc(a.id)}"${sent && sent.parrain === a.id ? ' selected' : ''}>${esc(a.nom)} (lui ${TAUX.second.join(' / ')} %, ${esc(a.nom)} ${TAUX.parrain.join(' / ')} %)</option>`).join('')}</select></div>
+    <div class="grid2 stack"><div class="f"><label for="parrain">Présenté par (facultatif)</label><select id="parrain" name="parrain"><option value="">personne : apporteur direct (${TAUX.direct.join(' / ')} %)</option>${r.apporteurs.map((a) => `<option value="${esc(a.id)}"${sent && sent.parrain === a.id ? ' selected' : ''}>${esc(a.nom)} (lui ${TAUX.second.join(' / ')} %, ${esc(a.nom)} ${TAUX.parrain.join(' / ')} %)</option>`).join('')}</select></div>
      <div class="f"><label for="contrat">Contrat d’apporteur</label><select id="contrat" name="contrat"><option value="0">pas encore signé</option><option value="1"${sent && sent.contrat === '1' ? ' selected' : ''}>signé</option></select></div></div>
     <div class="f"><label for="taux">Taux</label><select id="taux" name="taux">${TAUX_SPECIAUX.map(([kk, l]) => `<option value="${kk}"${sent && sent.taux === kk ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
     <details${sent && sent.objectif_clients ? ' open' : ''}><summary>🎁 Abonnement offert contre un objectif (Les Zaff)</summary>${r.apporteurs.some((x) => x.objectif && !x.objectifDe) ? `<div class="f"><label for="objectif_avec">Objectif commun avec (son associé)</label><select id="objectif_avec" name="objectif_avec"><option value="">non, son propre objectif ci-dessous</option>${r.apporteurs.filter((x) => x.objectif && !x.objectifDe).map((x) => `<option value="${esc(x.id)}">${esc(x.nom)}</option>`).join('')}</select></div>` : ''}<div class="grid2">${k.inp('objectif_clients', 'Boutiques payantes à amener', '', { mode: 'numeric', ph: '3', max: 2 })}${k.inp('objectif_avant', 'Avant le', '', { type: 'date' })}</div>${k.inp('offert_jusqua', 'Abonnement offert jusqu’au', '', { type: 'date' })}</details>
@@ -347,10 +470,10 @@ export function apporteursPage({ data, factures, todayIso, token, message, sent 
   <div class="cards">
    <section class="card wide"><h2>📜 Les règles (gravées)</h2><ul class="plain">
     <li>Commission sur les lignes « Abonnement » <b>encaissées</b> seulement (jamais la création, les options, le conseil), due le mois suivant : ${TAUX.direct[0]} % la 1re année du client (comptée depuis son 1er paiement), ${TAUX.direct[1]} % la 2e, ${TAUX.direct[2]} % ensuite. Un remboursement rend exactement ce qui a été gagné.</li>
-    <li>Pause = plus de commission à partir du mois de la pause, plus de bonus. Un apporteur sans contrat signé ne gagne rien, même comme parrain.</li>
+    <li>Pause = fin de son contrat : ses commissions restent dues sur les boutiques apportées avant (contrat, art. 10), rien sur les suivantes, plus de bonus ni de classement. Un manquement grave (art. 8) : écris-le à Claude. Un apporteur sans contrat signé ne gagne rien, même comme parrain.</li>
     <li>Apporteur présenté par un apporteur : lui ${TAUX.second.join(' / ')} %, celui qui l’a présenté ${TAUX.parrain.join(' / ')} %. Jamais plus de ${TAUX.direct[0]} % au total.</li>
-    <li>Bonus du mois (dès ${BONUS_MIN_APPORTEURS} apporteurs actifs) : le n°1 en nouvelles boutiques payantes gagne +${BONUS_POINTS} points ce mois-là (partagés à parts égales en cas d’égalité, jamais sur la part de parrain) ${r.bonusActif ? '— <b>actif</b>' : '— pas encore actif'}.</li>
-    <li>Un versement se note ici, en avoir ou en virement (sur sa facture). Rien ne part tout seul.</li></ul></section>
+    <li>Bonus du mois (dès ${BONUS_MIN_APPORTEURS} apporteurs actifs, c’est-à-dire qui ont déjà amené une boutique payante) : le n°1 en nouvelles boutiques payantes gagne +${BONUS_POINTS} points ce mois-là (partagés à parts égales en cas d’égalité, jamais sur la part de parrain) ${r.bonusActif ? '— <b>actif</b>' : '— pas encore actif'}.</li>
+    <li>Un versement se note ici : en moins sur son abonnement, ou en virement (sur sa facture). Rien ne part tout seul.</li></ul></section>
    <section class="card wide"><h2>🌐 Tableau de bord en ligne des apporteurs ${enLigne && enLigne.cle ? '<span class="badge ok">clé créée</span>' : '<span class="badge warn">à brancher</span>'}</h2>
     <p class="note">Chaque apporteur voit sa page sur le site Vendix (démo) : signé, payé, en attente, en retard, sa commission, le classement. Le bot y envoie les chiffres à chaque changement et chaque heure.</p>
     <form method="post" action="/apporteurs/enligne">${hid}${k.inp('url', 'Adresse du site Vendix', enLigne && enLigne.url ? enLigne.url : 'https://streetwear-demo.onrender.com', { max: 120 })}
@@ -362,7 +485,7 @@ export function apporteursPage({ data, factures, todayIso, token, message, sent 
    ${r.apporteurs.map(card).join('')}
    <section class="card wide"><h2>🏪 Attribuer une boutique à un apporteur</h2>${attribuer}</section>
    <section class="card wide"><h2>➕ Nouvel apporteur</h2>${ajout}</section>
-  </div>`);
+  </div>`, { nav });
 }
 
 const ACCES_JS = `
@@ -399,7 +522,7 @@ export function accesPage({ nonce, hasKeys }) {
   </div>`, { nonce, script: ACCES_JS, noNav: true });
 }
 
-export function sauvegardesPage({ key, tested = false, token, message, backup }) {
+export function sauvegardesPage({ nav = {}, key, tested = false, token, message, backup }) {
   const b = backup ? `Dernière sauvegarde : ${esc(new Date(backup.date).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }))} · copie hors du serveur : ${backup.distant ? 'oui (vérifiée)' : 'NON'}` : 'Pas encore de sauvegarde.';
   const hidden = `<input type="hidden" name="jeton" value="${esc(token)}">`;
   const keyCard = key ? `<section class="card wide"><h2>🔑 Ta clé de sauvegarde (à ranger maintenant)</h2>
@@ -419,7 +542,7 @@ export function sauvegardesPage({ key, tested = false, token, message, backup })
    <section class="card"><h2>🔐 Nouveau jeton GitHub</h2>
     <p class="note" style="margin-top:0">Seulement quand Claude te le demande (le jeton actuel expire le 24/10/2027). Il est rangé sur le serveur, jamais affiché.</p>
     <form method="post" action="/sauvegardes/github">${hidden}<div class="f"><label for="github">Colle le jeton</label><input id="github" name="github" type="password" autocomplete="off" placeholder="github_pat_…"></div><button type="submit">Enregistrer</button></form></section>
-  </div>`);
+  </div>`, { nav });
 }
 
 export function errorPage(msg) { return layout('Erreur', '', `<h1>Oups</h1><p>${esc(msg)}</p>`); }
@@ -457,7 +580,7 @@ function bienForm(k, p, b = {}) {
    <h3>Points de vigilance</h3>${k.area(`${p}.alertes`, 'Une alerte par ligne, 5 au plus (affichées sur Aujourd’hui)', (b.alertes || []).join('\n'), 'ex. Relire la clause de l’acte avant toute location')}`;
 }
 
-export function dossierPage({ data, token, message, vide = false, sent = null, dernieres = {} }) {
+export function dossierPage({ nav = {}, data, token, message, vide = false, sent = null, dernieres = {} }) {
   const k = dossierKit(sent);
   const jeton = `<input type="hidden" name="jeton" value="${esc(token)}">`;
   const biens = data.biens.map((b, i) => `<section class="card"><h2>🏡 ${esc(b.nom)}</h2>${dernieres[b.id] ? `<p class="note" style="margin-top:-6px">📅 Dernière échéance : <b>${esc(date(dernieres[b.id]))}</b> (calculée à partir du crédit)</p>` : ''}${bienForm(k, `b${i}`, b)}</section>`).join('');
@@ -487,23 +610,22 @@ export function dossierPage({ data, token, message, vide = false, sent = null, d
    <section class="card wide"><details${sent && String(sent.coller || '').trim() ? ' open' : ''}><summary style="cursor:pointer;font-weight:700;font-size:17px;list-style:none">📋 Coller une liste (abonnements et dépenses)</summary><div style="margin-top:10px">${k.area('coller', 'Une ligne par élément : Abonnement ou Dépense ; nom ; montant ; mois ou an ; date de renouvellement (jj/mm/aaaa, facultatif) ; préavis en jours (facultatif)', '', 'Abonnement ; Netflix ; 13,49 ; mois\nDépense ; Assurance auto ; 540 ; an ; 01/03/2027 ; 60')}<p class="note">Un nom déjà dans la liste est mis à jour, pas doublé. Pratique quand Claude te prépare la liste : tu la colles ici, puis « Enregistrer tout le dossier ».</p></div></details></section>
    <div class="wide" style="text-align:right">${save}</div>
   </form>
-  <div class="cards" style="margin-top:14px">${retirer}</div>`);
+  <div class="cards" style="margin-top:14px">${retirer}</div>`, { nav });
 }
 
-// Ready-made messages (no price: the prices live in Les Zaff OFFRES.md, the only source). Selected by a long press.
-const MSG_PREMIER = `Salut ! Moi c'est Sam, je monte des boutiques en ligne clé en main pour les vendeurs de vêtements.
+// Ready-made messages. Prices copied from Les Zaff OFFRES.md part C (grid of 01/11): update both together
+// (tests/grille.test.mjs compares them when Les Zaff sits next to the Cockpit). Selected by a long press.
+export const MSG_PREMIER = `Salut ! C'est Sam. Je crée des boutiques en ligne clé en main pour ceux qui vendent déjà sur Insta, Snap ou WhatsApp.
+Un seul lien à mettre partout. Ton client voit les prix, les tailles et le stock, il commande et paie tout seul. Toi, tu reçois la commande sur ton téléphone et tu envoies.
+Une vraie boutique : leszaff.fr
+Essaie-en une comme si c'était la tienne, 3 minutes : https://vendix.fr/essai
+Le prix : 290 € une fois pour la créer, puis 99 € par mois tant que tu vends moins de 3 000 € par mois. Aucune commission sur tes ventes, sans engagement. Prix sans TVA.
+On en parle 10 minutes ? Si ça ne t'intéresse pas, réponds « non merci » et je ne t'écris plus.`;
+export const MSG_RELANCE = `Re ! Une seule relance de ma part : tu as pu essayer la démo (https://vendix.fr/essai) ? Je peux te montrer en 10 minutes, sur mon téléphone, ce que ça donnerait avec tes articles. Sinon pas de souci, je ne t'écris plus.`;
+export const MSG_APRES_DEMO = `Merci pour ton temps ! Le récap : formule [Boutique / Croissance / Premium], 290 € une fois pour créer ta boutique (tes articles rentrés, tes paiements branchés, 30 minutes de prise en main), puis [99 / 199 / 349] € par mois. Aucune commission sur tes ventes, sans engagement, satisfait ou remboursé 30 jours sur ton abonnement (la création reste due : c'est du travail déjà fait). Prix sans TVA (art. 293 B). Si c'est bon pour toi, je t'envoie le contrat à signer sur ton téléphone. Ta boutique est en ligne 7 jours après ton 1er paiement et ta liste d'articles.`;
+export const MSG_DEMANDE = `Salut ! C'est Sam, de Vendix 👋 Merci pour ta demande. Je te propose 10 minutes au téléphone pour voir ta boutique avec tes articles. Tu es dispo aujourd'hui ou demain, plutôt le midi ou le soir ?`;
 
-Un seul lien à mettre partout (Insta, Snap, WhatsApp). Ton client choisit, paie par carte, et le reste se fait tout seul : confirmation, suivi du colis, relances, tes chiffres. Tu gères tout depuis Telegram, avec des boutons.
-
-Exemple en vrai : leszaff.fr
-
-Offre de lancement : création offerte, 3 premiers mois moins chers, aucune commission sur tes ventes.
-
-On en parle 10 minutes ? Si ça ne t'intéresse pas, réponds juste « non merci » et je ne t'écris plus.`;
-const MSG_RELANCE = `Re ! Une seule relance de ma part pour la boutique en ligne : je peux te montrer en 5 minutes, sur mon téléphone, comment ça marche avec tes propres articles. Ça te dit ? Sinon pas de souci, je ne t'écris plus.`;
-const MSG_APRES_DEMO = `Merci pour ton temps ! Le récap : formule [nom], création offerte, [prix] par mois les 3 premiers mois, puis [prix]. Payé d'avance, sans commission sur tes ventes. Si c'est bon pour toi, je t'envoie les conditions à signer et on lance ta boutique.`;
-
-export function prospectsPage({ list = [], token, message, sent = null, todayIso }) {
+export function prospectsPage({ nav = {}, list = [], token, message, sent = null, todayIso }) {
   const k = dossierKit(sent);
   const sorted = trier(list);
   const c = compter(list);
@@ -526,7 +648,7 @@ export function prospectsPage({ list = [], token, message, sent = null, todayIso
    <div class="chips"><span class="chip">${due ? `⏰ ${due} à relancer aujourd’hui` : '✅ Personne à relancer'}</span><span class="chip">💬 ${enCours} en cours</span><span class="chip">🎉 ${c.signe} client${c.signe > 1 ? 's' : ''}</span></div></section>
   ${message ? `<div class="alert ${message.ok ? 'ok' : 'bad'}">${esc(message.text)}${message.ok ? '' : ' Ce que tu as tapé est encore là : corrige la case et réenregistre.'}</div>` : ''}
   <form method="post" action="/prospects" class="cards" style="margin-top:12px"><input type="hidden" name="jeton" value="${esc(token)}">
-   <section class="card wide"><h2>➕ Ajouter un prospect</h2>${row('pnew')}${save}
+   <section class="card wide" id="nouveau"><h2>➕ Ajouter un prospect</h2>${row('pnew')}${save}
     <p class="note">Quand tu choisis une étape sans date, le Cockpit met la relance tout seul (message envoyé : 4 jours ; relancé : 7 jours ; démo : 2 jours ; offre : 3 jours). Le bot te dit chaque matin combien de personnes relancer, sans leur nom.</p></section>
    ${rows}
    ${list.length ? `<div class="wide" style="text-align:right">${save}</div>` : ''}
@@ -540,11 +662,13 @@ export function prospectsPage({ list = [], token, message, sent = null, todayIso
     <li>Jamais de message envoyé à plusieurs d’un coup, jamais de liste achetée.</li>
     <li>Ici, un pseudo suffit : pas de nom complet, pas d’adresse. S’il demande à être effacé : vide son pseudo, puis « Enregistrer ».</li></ul></section>
    <section class="card"><h2>💬 Messages prêts</h2><p class="note" style="margin-top:0">Touche le texte, puis « Tout sélectionner » et « Copier ».</p>
+    <p class="note">leszaff.fr sert d’exemple de vitrine seulement. S’il demande à voir les pages légales comprises dans la création, montre la boutique d’exemple : <a href="https://demo.vendix.fr/mentions-legales">demo.vendix.fr/mentions-legales</a> (celles des Zaff attendent encore les informations du vendeur).</p>
     <h3>1 · Premier message</h3>${copy(MSG_PREMIER)}
     <h3>2 · La relance (une seule)</h3>${copy(MSG_RELANCE)}
     <h3>3 · Après la démo</h3>${copy(MSG_APRES_DEMO)}
-    <p class="note">Remplace les [crochets] par les prix de la formule choisie. La démo en 5 minutes : leszaff.fr, un article, « Commander sur Telegram », puis ton espace vendeur.</p></section>
-  </div>`);
+    <h3>4 · Réponse à une demande reçue par la démo (dans l’heure)</h3>${copy(MSG_DEMANDE)}
+    <p class="note">Message 3 : remplace les [crochets] par sa formule et son prix. La démo : https://vendix.fr/essai (3 minutes, sur ton téléphone ou le sien).</p></section>
+  </div>`, { nav });
 }
 
 // The safe: file a paper (photo or PDF) in two gestures, find it again by house or project, sorted by year.
@@ -570,7 +694,7 @@ function keyPanel({ vaultInfo = { etat: 'absent' }, verif, token, index = [], in
   <p id="cle-ouverte" hidden class="note" style="margin-top:12px">🔓 Coffre ouvert sur ce téléphone (il se referme seul après 15 min). <button type="button" class="ghost" id="verrouiller-coffre">🔒 Refermer maintenant</button></p>`;
 }
 
-export function coffrePage({ index = [], places = [], filtre = {}, token, message, sent = null, distant = null, cle = true, todayIso, nonce = null, script = null, verif = '', vaultInfo = { etat: 'absent' }, indice = '' }) {
+export function coffrePage({ nav = {}, index = [], places = [], filtre = {}, token, message, sent = null, distant = null, cle = true, todayIso, nonce = null, script = null, verif = '', vaultInfo = { etat: 'absent' }, indice = '' }) {
   const counts = compterPar(index);
   const docs = filtrer(index, filtre).filter((d) => !filtre.afaire || d.afaire === 'a_faire');
   const todo = aFaire(index).length;
@@ -634,11 +758,11 @@ export function coffrePage({ index = [], places = [], filtre = {}, token, messag
     <li>Factures et papiers de ta micro-entreprise : garde-les 10 ans (règle des papiers de comptabilité).</li>
     <li>Une date limite (fin de contrat, devis à signer, garantie) : le bot te prévient 30 jours avant, 7 jours avant et le jour même, sans dire de quel papier il s’agit.</li>
     <li>Chaque papier est aussi copié hors du serveur, chiffré avec ta clé de sauvegarde (celle de ta fiche de secours). Un papier retiré ici disparaît du serveur ; sa copie chiffrée reste dans les sauvegardes.</li></ul></section>
-  </div>`, { nonce, script });
+  </div>`, { nonce, script, nav });
 }
 
 // One paper, shown inside the app (the app opened from the home screen has no back button: never a new tab).
-export function coffreViewPage({ doc, places, nonce = null, script = null, token = '', vaultInfo = { etat: 'absent' }, verif = '', index = [], indice = '' }) {
+export function coffreViewPage({ nav = {}, doc, places, nonce = null, script = null, token = '', vaultInfo = { etat: 'absent' }, verif = '', index = [], indice = '' }) {
   const t = TYPES.find(([k]) => k === doc.type) || ['autre', '📄', 'Autre'];
   const src = `/coffre/f/${esc(doc.id)}`;
   const sealedT = isE2(doc.titre);
@@ -655,5 +779,5 @@ export function coffreViewPage({ doc, places, nonce = null, script = null, token
    <div id="papier" data-id="${esc(doc.id)}" data-src="${src}" data-mime="${esc(doc.mime)}" data-name="${esc(name)}" data-e2e="${doc.e2e ? '1' : '0'}"${doc.e2e ? ' hidden' : ''}>Chargement…</div>
    <div class="grid2"><button type="button" id="pleinecran" hidden>⛶ Plein écran</button><button type="button" id="partager" hidden>📤 Enregistrer ou envoyer</button></div>${warn}
    <p class="note">${doc.e2e ? 'Le papier est déchiffré dans ton téléphone, le temps de le lire. ' : ''}« Enregistrer ou envoyer » ouvre le menu de partage de l’iPhone. Rien ne part sans ton choix.</p></section>
-  <p style="margin-top:14px">${back}</p>`, { nonce, script });
+  <p style="margin-top:14px">${back}</p>`, { nonce, script, nav, back: ['/coffre', 'Coffre'] });
 }

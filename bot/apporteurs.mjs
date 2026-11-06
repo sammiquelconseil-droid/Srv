@@ -9,11 +9,17 @@ import { moisDe } from './micro.mjs';
 export const TAUX = { direct: [25, 15, 10], second: [15, 9, 6], parrain: [10, 6, 4] };
 // A special rate for one apporteur (Les Zaff: 25 % for 3 years, then 20 %): points per client year, last value repeats.
 // The partner rate (Les Zaff, its associate, Sam's close circle): kept under the « zaff » key so stored files stay valid.
-export const TAUX_SPECIAUX = [['', 'Taux normal (25 / 15 / 10 %)'], ['zaff', 'Partenaire : 25 % pendant 3 ans, puis 20 %']];
-const SPECIAUX = { zaff: [25, 25, 25, 20] };
+// « client » (27/10, Sam) : a Vendix shop owner who recommends another seller, paid as a credit on his own
+// subscription (shop contract art. 12.2).
+export const TAUX_SPECIAUX = [['', 'Taux normal (25 / 15 / 10 %)'], ['zaff', 'Partenaire : 25 % pendant 3 ans, puis 20 %'], ['client', 'Client qui recommande (15 %, garanti 1 an)']];
+// 27/10 (Sam) : un seul taux, garanti un an puis révisable par Sam (jamais moins de 10 %) : 15 % tant qu'il n'est pas revu.
+const SPECIAUX = { zaff: [25, 25, 25, 20], client: [15] };
 const tauxDe = (table, annee) => table[Math.min(annee, table.length - 1)];
 export const BONUS_POINTS = 5, BONUS_MIN_APPORTEURS = 3;
-export const MODES = [['avoir', 'Avoir (déduit de son abonnement)'], ['virement', 'Virement (sur sa facture)']];
+// Objective (contract 12.2): only boutiques in the Boutique formula or above (1st subscription invoice ≥ 99 €,
+// grid of 01/11: Boutique 99, Croissance 199, Premium 349 €/month; the old 249 € threshold refused a Boutique).
+export const OBJECTIF_MIN_CENTS = 9900;
+export const MODES = [['avoir', 'En moins sur son abonnement'], ['virement', 'Virement (sur sa facture)']];
 export const MAX_APPORTEURS = 50;
 
 const fail = (champ, raison) => { const e = new Error(`${champ} : ${raison}`); e.champ = champ; throw e; };
@@ -64,7 +70,8 @@ export function ajouterApporteur(fields, data, todayIso) {
   d.apporteurs.push(a);
   return d;
 }
-// Pause: no commission from the month of the pause, no bonus; a paused apporteur is no longer counted as active.
+// Pause = end of the contract (art. 10): commissions stay due on the boutiques brought BEFORE the pause; nothing on
+// boutiques brought after, no bonus, out of the ranking. (A breach of art. 8 is handled by Sam by hand.)
 export function modifierApporteur(fields, data, todayIso = null) {
   const d = copy(data); const a = d.apporteurs.find((x) => x.id === String(fields.id)) || fail('Apporteur', 'introuvable');
   if ('actif' in fields) {
@@ -125,26 +132,31 @@ export function lignes(data, factures) {
   // First subscription payment per client (year 1 starts there), among the attributed clients.
   const first = {};
   for (const f of paid) { const k = key(f.client.nom); if (byKey.has(k)) { const m = moisDe(f.payee.date); if (!first[k] || m < first[k]) first[k] = m; } }
-  // An apporteur earns only with a signed contract, from the month he was added, and not from the month of a pause.
-  const gagne = (a, mois) => a && a.contrat && moisDe(a.depuis) <= mois && !(a.pause && moisDe(a.pause) <= mois);
+  // An apporteur earns only with a signed contract. The client's own « Apporté le » date gates the start (below).
+  const gagne = (a) => !!(a && a.contrat);
+  const enCours = (a, mois) => gagne(a) && !(a.pause && moisDe(a.pause) <= mois); // for the bonus only
+  const avantPause = (a, c) => !(a && a.pause && moisDe(c.depuis) >= moisDe(a.pause));
   const out = [];
   for (const f of paid) {
     const k = key(f.client.nom); const c = byKey.get(k); if (!c || !app[c.apporteur]) continue;
     const a = app[c.apporteur]; const mois = moisDe(f.payee.date), base = baseAbonnement(f);
     if (mois < moisDe(c.depuis)) continue; // nothing before the client was brought (no retroactive commission)
     const annee = Math.max(0, Math.floor(monthsBetween(first[k], mois) / 12));
-    const push = (id, taux, role) => { if (gagne(app[id], mois)) out.push({ mois, apporteur: id, client: c.nom, numero: f.numero, base, taux, role, avoir: f.avoir ? moisDe(f.avoir.date) : null }); };
+    const push = (id, taux, role) => { if (gagne(app[id]) && avantPause(app[id], c)) out.push({ mois, apporteur: id, client: c.nom, numero: f.numero, base, taux, role, via: role === 'parrain' ? a.id : null, avoir: f.avoir ? moisDe(f.avoir.date) : null }); };
     if (a.parrain && app[a.parrain]) { push(a.id, tauxDe(TAUX.second, annee), 'second'); push(a.parrain, tauxDe(TAUX.parrain, annee), 'parrain'); }
     else push(a.id, tauxDe(a.taux && SPECIAUX[a.taux] ? SPECIAUX[a.taux] : TAUX.direct, annee), 'direct');
   }
   // Bonus of a month: with ≥ 3 apporteurs active THAT month, the one(s) with the most clients whose first payment is
   // in that month get +5 points on their lines of that month (shared on a tie). Never on parrain lines.
+  // « Actif » = contract art. 5 : has already brought at least one client who paid (by that month).
   const months = [...new Set(out.map((l) => l.mois))];
+  const aPaye = (id, mois) => Object.entries(first).some(([k, m]) => m <= mois && byKey.get(k).apporteur === id);
+  const concourt = (a, mois) => a && a.taux !== 'client' && enCours(a, mois); // a recommending client has no bonus (contract 12.2)
   for (const mois of months) {
-    const actifs = d.apporteurs.filter((a) => a.contrat && moisDe(a.depuis) <= mois && !(a.pause && moisDe(a.pause) <= mois));
+    const actifs = d.apporteurs.filter((a) => concourt(a, mois) && aPaye(a.id, mois));
     if (actifs.length < BONUS_MIN_APPORTEURS) continue;
     const counts = {};
-    for (const [k, m] of Object.entries(first)) if (m === mois) { const c = byKey.get(k); const a = app[c.apporteur]; if (a && gagne(a, mois)) counts[c.apporteur] = (counts[c.apporteur] || 0) + 1; }
+    for (const [k, m] of Object.entries(first)) if (m === mois) { const c = byKey.get(k); const a = app[c.apporteur]; if (concourt(a, mois)) counts[c.apporteur] = (counts[c.apporteur] || 0) + 1; }
     if (!Object.keys(counts).length) continue;
     const max = Math.max(...Object.values(counts)); const winners = Object.keys(counts).filter((x) => counts[x] === max);
     for (const l of out) if (l.mois === mois && l.role !== 'parrain' && winners.includes(l.apporteur)) l.bonus = BONUS_POINTS / winners.length;
@@ -172,12 +184,14 @@ export function resume(data, factures, todayIso) {
       const inv = (invoicesByClient[key(c.nom)] || []).filter((f) => !f.avoir && baseAbonnement(f) > 0);
       const payes = inv.filter((f) => f.payee), ouvertes = inv.filter((f) => !f.payee);
       const premier = payes.map((f) => f.payee.date).sort()[0] || null;
-      return { nom: c.nom, depuis: c.depuis, premierPaiement: premier, payees: payes.length, enAttente: ouvertes.length, enRetard: ouvertes.filter((f) => f.echeance < today).length, dernier: payes.map((f) => f.payee.date).sort().at(-1) || null };
+      const premiere = payes.slice().sort((x, y) => (x.payee.date < y.payee.date ? -1 : 1))[0];
+      const boutiqueOuPlus = !!premiere && baseAbonnement(premiere) >= OBJECTIF_MIN_CENTS;
+      return { nom: c.nom, depuis: c.depuis, premierPaiement: premier, boutiqueOuPlus, payees: payes.length, enAttente: ouvertes.length, enRetard: ouvertes.filter((f) => f.echeance < today).length, dernier: payes.map((f) => f.payee.date).sort().at(-1) || null };
     });
     const payants = clients.filter((c) => c.premierPaiement).length;
     let objectif = null;
     if (a.objectif) {
-      const atteints = clients.filter((c) => c.premierPaiement && c.premierPaiement <= a.objectif.avant).length;
+      const atteints = clients.filter((c) => c.premierPaiement && c.boutiqueOuPlus && c.premierPaiement <= a.objectif.avant).length;
       objectif = { ...a.objectif, atteints, ok: atteints >= a.objectif.clients, depasse: today > a.objectif.avant && atteints < a.objectif.clients };
     }
     return { ...a, du, ceMois, aVenir, verse, solde: du - verse, clients, payants, objectif, versements: d.versements.filter((v) => v.apporteur === a.id) };
@@ -187,15 +201,17 @@ export function resume(data, factures, todayIso) {
     if (!a.objectif) continue;
     const team = apporteurs.filter((b) => b.objectifDe === a.id);
     if (!team.length) continue;
-    const atteints = [a, ...team].reduce((n, b) => n + b.clients.filter((c) => c.premierPaiement && c.premierPaiement <= a.objectif.avant).length, 0);
+    const atteints = [a, ...team].reduce((n, b) => n + b.clients.filter((c) => c.premierPaiement && c.boutiqueOuPlus && c.premierPaiement <= a.objectif.avant).length, 0);
     a.objectif = { ...a.objectif, atteints, ok: atteints >= a.objectif.clients, depasse: today > a.objectif.avant && atteints < a.objectif.clients, commun: true };
     for (const b of team) b.objectif = { ...a.objectif };
   }
   // Rank: paying clients brought (direct), then cash brought. Only ranks and counts are ever shown to others.
-  const rank = [...apporteurs].filter((a) => a.actif).sort((x, y) => y.payants - x.payants);
-  for (const a of apporteurs) a.rang = a.actif ? rank.findIndex((r) => r.payants === a.payants) + 1 : null; // ex æquo share a rank
+  // Ranking: active apporteurs only, never a recommending client (Vendix's clients stay confidential, art. 9).
+  const classe = (a) => a.actif && a.taux !== 'client';
+  const rank = [...apporteurs].filter(classe).sort((x, y) => y.payants - x.payants);
+  for (const a of apporteurs) a.rang = classe(a) ? rank.findIndex((r) => r.payants === a.payants) + 1 : null; // ex æquo share a rank
   return {
-    apporteurs, moisCourant, bonusActif: apporteurs.filter((a) => a.actif).length >= BONUS_MIN_APPORTEURS,
+    apporteurs, moisCourant, bonusActif: apporteurs.filter((a) => classe(a) && a.contrat && a.payants > 0).length >= BONUS_MIN_APPORTEURS,
     aVerserCeMois: apporteurs.reduce((n, a) => n + Math.max(0, a.solde), 0), nbClients: d.clients.length,
     classement: rank.map((a) => ({ id: a.id, nom: a.nom, payants: a.payants, rang: a.rang })),
   };
@@ -209,13 +225,13 @@ export const nomMois = (m) => `${MOIS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4
 export function releve(data, factures, apporteurId, todayIso) {
   const r = resume(data, factures, todayIso); const a = r.apporteurs.find((x) => x.id === String(apporteurId)) || fail('Apporteur', 'introuvable');
   const all = lignes(data, factures).filter((l) => l.apporteur === a.id);
-  const mois = r.moisCourant, prev = all.filter((l) => l.due === mois);
+  const mois = r.moisCourant, prev = vuePublique(all.filter((l) => l.due === mois), data);
   const lines = [`Relevé ${nomMois(mois)} — ${a.nom}`, ''];
   lines.push(`Tes boutiques (${a.clients.length}) :`);
   for (const c of a.clients) lines.push(`• ${c.nom} — ${c.premierPaiement ? `${c.payees} mois payé${c.payees > 1 ? 's' : ''}` : 'pas encore payé'}${c.enRetard ? ` · ${c.enRetard} en retard` : c.enAttente ? ` · ${c.enAttente} en attente` : ''}`);
   if (!a.clients.length) lines.push('• aucune pour l’instant');
   lines.push('', `Commission du mois (sur les encaissements de ${nomMois(prev[0] ? prev[0].mois : mois)}) : ${eur(a.ceMois)}`);
-  for (const l of prev) lines.push(`• ${l.client} : ${l.rembourse ? `remboursement, ${eur(l.montant)}` : `${eur(l.base)} × ${String(l.points).replace('.', ',')} % = ${eur(l.montant)}${l.bonus ? ' (dont bonus n°1 du mois)' : ''}`}`);
+  for (const l of prev) lines.push(`• ${l.client} : ${l.rembourse ? `remboursement, ${eur(l.montant)}` : l.reseau ? eur(l.montant) : `${eur(l.base)} × ${String(l.points).replace('.', ',')} % = ${eur(l.montant)}${l.bonus ? ' (dont bonus n°1 du mois)' : ''}`}`);
   lines.push(`Total dû à ce jour : ${eur(a.du)} · déjà versé : ${eur(a.verse)} · ${a.solde < 0 ? `trop versé : ${eur(-a.solde)} (déduit du prochain)` : `reste : ${eur(a.solde)}`}`);
   if (a.objectif) lines.push('', `Objectif : ${a.objectif.atteints}/${a.objectif.clients} boutiques payantes avant le ${a.objectif.avant.split('-').reverse().join('/')} ${a.objectif.ok ? '✅' : a.objectif.depasse ? '— échéance passée' : ''}`);
   if (r.bonusActif) lines.push('', `Classement (boutiques payantes) : tu es n°${a.rang} sur ${r.classement.length} (${a.payants} boutique${a.payants > 1 ? 's' : ''} payante${a.payants > 1 ? 's' : ''}).`);
@@ -244,20 +260,36 @@ export function nouveauJeton(fields, data) {
 
 // What the online dashboard receives (src/web/apporteurs.py of the Vendix demo site): one entry per active apporteur,
 // his clients and money only, the ranking with names and counts. No amount of anyone else, no client of anyone else.
+// Contract art. 7.3: a parrain never sees the clients nor the amounts of the apporteurs he presented. His lines on
+// their clients are grouped by month and by apporteur: « Le réseau de Karim : 2 vendeurs », his own amount only.
+export function vuePublique(lines, data) {
+  const noms = Object.fromEntries((data.apporteurs || []).map((a) => [a.id, a.nom]));
+  const out = [], groupes = new Map();
+  for (const l of lines) {
+    if (l.role !== 'parrain') { out.push(l); continue; }
+    const k = `${l.mois}|${l.via}|${l.rembourse ? 1 : 0}`;
+    if (!groupes.has(k)) { const g = { ...l, reseau: true, nb: 0, montant: 0, clients: new Set() }; groupes.set(k, g); out.push(g); }
+    const g = groupes.get(k); g.montant += l.montant; g.clients.add(l.client);
+  }
+  for (const g of groupes.values()) { g.nb = g.clients.size; g.client = `Le réseau de ${noms[g.via] || 'ton apporteur'} : ${g.nb} vendeur${g.nb > 1 ? 's' : ''}`; delete g.clients; delete g.base; }
+  return out;
+}
+
 const dfr = (iso) => (iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '');
 export function exportPublic(data, factures, todayIso) {
   const r = resume(data, factures, todayIso); const all = lignes(data, factures);
   const classement = r.classement.map((c) => ({ nom: c.nom, payants: c.payants, id: c.id }));
-  const nbActifs = r.apporteurs.filter((a) => a.actif).length;
+  const nbActifs = r.classement.length;
   return {
     maj: `${dfr(todayIso)}`,
-    apporteurs: r.apporteurs.filter((a) => a.actif && /^[0-9a-f]{32}$/.test(a.token || '')).map((a) => ({
+    // A paused apporteur keeps his page (his commissions on past boutiques are still due).
+    apporteurs: r.apporteurs.filter((a) => /^[0-9a-f]{32}$/.test(a.token || '')).map((a) => ({
       token: a.token, code: codeOf(a.token), nom: a.nom, rang: a.rang, nbActifs, bonusActif: r.bonusActif,
       ceMois: a.ceMois, ceMoisTxt: eur(a.ceMois), du: a.du, duTxt: eur(a.du), verse: a.verse, verseTxt: eur(a.verse), solde: a.solde, soldeTxt: eur(Math.abs(a.solde)),
       moisTxt: nomMois(r.moisCourant),
       objectif: a.objectif ? { clients: a.objectif.clients, atteints: a.objectif.atteints, avantTxt: dfr(a.objectif.avant), offertTxt: dfr(a.objectif.offert_jusqua), ok: a.objectif.ok, depasse: a.objectif.depasse } : null,
       clients: a.clients.map((c) => ({ nom: c.nom, payes: c.payees, enAttente: c.enAttente, enRetard: c.enRetard, dernierTxt: dfr(c.dernier) })),
-      lignes: all.filter((l) => l.apporteur === a.id && l.due === r.moisCourant).map((l) => ({ client: l.client, baseTxt: eur(l.base), pointsTxt: String(l.points).replace('.', ','), montantTxt: eur(l.montant), bonus: !!l.bonus, rembourse: !!l.rembourse })),
+      lignes: vuePublique(all.filter((l) => l.apporteur === a.id && l.due === r.moisCourant), data).map((l) => ({ client: l.client, baseTxt: l.reseau ? '' : eur(l.base), pointsTxt: l.reseau ? '' : String(l.points).replace('.', ','), montantTxt: eur(l.montant), bonus: !!l.bonus, rembourse: !!l.rembourse, reseau: !!l.reseau })),
       versements: a.versements.map((v) => ({ dateTxt: dfr(v.date), montantTxt: eur(v.montant), mode: v.mode })),
       classement: classement.map((c) => ({ nom: c.nom, payants: c.payants, moi: c.id === a.id })),
     })),

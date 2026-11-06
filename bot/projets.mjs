@@ -12,7 +12,7 @@ export function minimise(s) {
   return t.replace(/\d[\d\s\u202f.,]*\s?(€|euros?\b|EUR\b)/gi, '[montant]');
 }
 
-export const RANK = { hoc: 1, cockpit: 2, zaff: 2, lingfi: 3, leadgen: 4 };
+export const RANK = { hoc: 1, cockpit: 2, zaff: 2, leadgen: 4 };
 export const ORDER = Object.keys(RANK).sort((a, b) => RANK[a] - RANK[b]);
 
 const all = (re) => (t) => [...t.matchAll(re)].map((m) => m[0]);
@@ -23,7 +23,6 @@ export const SOURCES = {
   hoc: null, // never read, from anywhere
   cockpit: { attente: ['ROADMAP.md', section('## Décisions de Sam')] },
   zaff: { attente: ['ROADMAP.md', all(/^- \[ \] \(toi\).*$/gm)] },
-  lingfi: { attente: ['DECISIONS.md', all(/^#{2,3} D-\d+.*dis stop.*$/gm)] },
   leadgen: { attente: null },
 };
 

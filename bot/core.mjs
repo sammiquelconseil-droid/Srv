@@ -9,9 +9,9 @@ export const stamp = (d) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(
 
 const CHOICES = Object.entries(PROJECTS).map(([k, p]) => ({ text: p.label, callback_data: `p:${k}` }));
 
-export const ASK = { text: 'HOC, LeadGen, Zaff, Lingfi, Cockpit… ou tous ?', reply_markup: { inline_keyboard: [CHOICES.slice(0, 3), [...CHOICES.slice(3), { text: 'Tous', callback_data: 'p:tous' }], [{ text: 'Plusieurs…', callback_data: 'm' }]] } };
+export const ASK = { text: 'HOC, LeadGen, Zaff, Cockpit… ou tous ?', reply_markup: { inline_keyboard: [CHOICES.slice(0, 3), [...CHOICES.slice(3), { text: 'Tous', callback_data: 'p:tous' }], [{ text: 'Plusieurs…', callback_data: 'm' }]] } };
 export const STATUS = /^(\/?(projets|point)|o[uù] en sont (mes|les) projets\s*\??|o[uù] (on )?en (est|suis)[- ]?(on|je)?\s*\??)$/i;
-const RANKS = { hoc: 1, cockpit: 2, zaff: 2, lingfi: 3, leadgen: 4 }; // REGLES-COMMUNES §H
+const RANKS = { hoc: 1, cockpit: 2, zaff: 2, leadgen: 4 }; // REGLES-COMMUNES §H
 const ORDER = Object.keys(RANKS);
 const byRank = (ks) => [...ks].sort((a, b) => RANKS[a] - RANKS[b] || ORDER.indexOf(a) - ORDER.indexOf(b));
 const pickMarkup = (sel) => ({ inline_keyboard: [...byRank(Object.keys(PROJECTS)).map((k) => [{ text: `${sel.includes(k) ? '☑' : '☐'} ${PROJECTS[k].label}`, callback_data: `t:${k}` }]), [{ text: `Envoyer (${sel.length})`, callback_data: 'go' }]] });
@@ -163,7 +163,7 @@ export function createCore({ edit = null, memoryStore = null, extraWords = () =>
     if (cmd === '/annuler') return send(chat, 'Rien n’était en cours. Annulé.');
     if (cmd === '/start') return send(chat, 'Bot personnel prêt. Envoie-moi une note, une photo ou un vocal : je la range dans le bon projet. /sante pour l’état du serveur.');
     if (cmd === '/sante') { const h = await health(); return send(chat, h); }
-    if (cmd === '/aide') return send(chat, 'Écris ce que tu veux : je devine le projet (HOC, LeadGen, Zaff, Lingfi, Cockpit) ou je te demande ; « Plusieurs… » pour en cocher plusieurs. « Où en sont mes projets ? » ou /projets : l’état de tous tes projets. /decisions : ce qui n’attend que toi. Autres : /cockpit, /acces, /appareils, /sante, /maj, /version, /secours, /cle, /aide. Clé de sauvegarde, test de sauvegarde, jeton GitHub : page « Sauvegardes » du Cockpit, jamais ici.');
+    if (cmd === '/aide') return send(chat, 'Écris ce que tu veux : je devine le projet (HOC, LeadGen, Zaff, Cockpit) ou je te demande ; « Plusieurs… » pour en cocher plusieurs. « Où en sont mes projets ? » ou /projets : l’état de tous tes projets. /decisions : ce qui n’attend que toi. Autres : /cockpit, /acces, /appareils, /sante, /maj, /version, /secours, /cle, /aide. Clé de sauvegarde, test de sauvegarde, jeton GitHub : page « Sauvegardes » du Cockpit, jamais ici.');
     return send(chat, 'Commande inconnue. /aide');
   }
 

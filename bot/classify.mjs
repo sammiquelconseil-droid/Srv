@@ -2,8 +2,8 @@
 export const PROJECTS = {
   hoc: { label: 'HOC', repo: 'house-of-crochet', words: ['hoc', 'assimina', 'crochet', 'braids', 'tresse', 'tresses', 'salon', 'coiffure', 'calendly', 'netlify', 'supabase'] },
   leadgen: { label: 'LeadGen', repo: 'leadgen-renov', words: ['leadgen', 'ouz', 'pompe', 'pac', 'lead', 'leads', 'installateur', 'installateurs', 'rge', 'renov', 'devis', 'meta', 'n8n', 'cloudflare'] },
-  zaff: { label: 'Zaff', repo: 'les-zaff', words: ['zaff', 'vendix', 'render', 'neon', 'payhip', 'yupoo', 'vinted', 'streetwear', 'guangzhou', 'vetement', 'vetements'] },
-  lingfi: { label: 'Lingfi', repo: 'Boutique', words: ['lingfi', 'boutique', 'tenant', 'marchand', 'hetzner', 'storagebox'] },
+  // 05/11/2026 : Lingfi (dépôt Boutique) n'est plus un projet actif ; « boutique » et « marchand » parlent de Vendix → Zaff.
+  zaff: { label: 'Zaff', repo: 'les-zaff', words: ['zaff', 'vendix', 'render', 'neon', 'payhip', 'yupoo', 'vinted', 'streetwear', 'guangzhou', 'vetement', 'vetements', 'boutique', 'boutiques', 'marchand', 'marchands'] },
   cockpit: { label: 'Cockpit', repo: 'cockpit', words: ['cockpit', 'impot', 'impots', 'urssaf', 'tva', 'maison', 'maisons', 'loyer', 'loyers', 'credit', 'credits', 'banque', 'serveur', 'hostinger', 'tailscale', 'salaire', 'abonnement', 'abonnements', 'patrimoine', 'bot'] },
 };
 
